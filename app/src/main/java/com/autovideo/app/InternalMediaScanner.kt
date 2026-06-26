@@ -26,45 +26,21 @@ class InternalMediaScanner(private val context: Context) {
     fun scan(access: MediaReadAccess): Pair<List<RemovableSource>, List<MediaFolder>> {
         if (!access.any) return emptyList<RemovableSource>() to emptyList()
 
-        val sources = mutableListOf<RemovableSource>()
-        val folders = mutableListOf<MediaFolder>()
-
-        externalVolumeNames().forEach { volumeName ->
-            val isPrimary = volumeName == MediaStore.VOLUME_EXTERNAL_PRIMARY || volumeName == "external"
-            val sourceName = if (isPrimary) INTERNAL_SOURCE_NAME else "Съёмный носитель"
-            val sourceUri = if (isPrimary) INTERNAL_SOURCE_URI else "mediastore://$volumeName"
-            val groupedFiles = linkedMapOf<String, MutableList<MediaFile>>()
-
-            queryVolume(volumeName, sourceName, access, groupedFiles)
-
-            if (isPrimary || groupedFiles.isNotEmpty()) {
-                sources += RemovableSource(sourceUri, sourceName, true)
-            }
-
-            groupedFiles.forEach { (folderPath, files) ->
-                folders += MediaFolder(
-                    id = "$sourceUri#$folderPath",
-                    name = folderPath.substringAfterLast('/').ifBlank { sourceName },
-                    sourceName = sourceName,
-                    sourceUriString = sourceUri,
-                    files = files.sortedBy { it.name.lowercase(Locale.getDefault()) },
-                )
-            }
-        }
-
-        return sources.distinctBy(RemovableSource::uriString) to folders
-    }
-
-    private fun externalVolumeNames(): Set<String> =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            MediaStore.getExternalVolumeNames(context)
+        val volumeName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.VOLUME_EXTERNAL_PRIMARY
         } else {
-            setOf("external")
+            "external"
         }
+        val grouped = linkedMapOf<String, MutableList<MediaFile>>()
+        queryVolume(volumeName, access, grouped)
+
+        val directories = grouped.map { (path, files) -> IndexedMediaDirectory(path, files) }
+        return listOf(RemovableSource(INTERNAL_SOURCE_URI, INTERNAL_SOURCE_NAME, true)) to
+            MediaHierarchy.build(INTERNAL_SOURCE_NAME, INTERNAL_SOURCE_URI, directories)
+    }
 
     private fun queryVolume(
         volumeName: String,
-        sourceName: String,
         access: MediaReadAccess,
         groupedFiles: MutableMap<String, MutableList<MediaFile>>,
     ) {
@@ -98,7 +74,7 @@ class InternalMediaScanner(private val context: Context) {
                 "${MediaStore.MediaColumns.DATE_MODIFIED} DESC",
             )
         }.getOrNull()?.use { cursor ->
-            readCursor(cursor, collection, pathColumn, sourceName, access, groupedFiles)
+            readCursor(cursor, collection, pathColumn, access, groupedFiles)
         }
     }
 
@@ -106,7 +82,6 @@ class InternalMediaScanner(private val context: Context) {
         cursor: Cursor,
         collection: Uri,
         pathColumn: String,
-        sourceName: String,
         access: MediaReadAccess,
         groupedFiles: MutableMap<String, MutableList<MediaFile>>,
     ) {
@@ -133,7 +108,7 @@ class InternalMediaScanner(private val context: Context) {
             val rawPath = if (pathIndex >= 0) cursor.getString(pathIndex).orEmpty() else ""
             val folderPath = normalizeFolderPath(rawPath, isVideo)
             val folderName = folderPath.substringAfterLast('/').ifBlank {
-                if (isVideo) "Видео" else "Аудио"
+                if (isVideo) "Видео" else "Музыка"
             }
             groupedFiles.getOrPut(folderPath) { mutableListOf() }.add(
                 MediaFile(
@@ -143,7 +118,7 @@ class InternalMediaScanner(private val context: Context) {
                     sizeBytes = if (sizeIndex >= 0) cursor.getLong(sizeIndex) else 0L,
                     isVideo = isVideo,
                     folderName = folderName,
-                    sourceName = sourceName,
+                    sourceName = INTERNAL_SOURCE_NAME,
                 )
             )
         }
