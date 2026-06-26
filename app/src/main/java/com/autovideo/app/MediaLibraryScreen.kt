@@ -1,7 +1,6 @@
 package com.autovideo.app
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,7 +18,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -34,10 +32,10 @@ fun MediaLibraryScreen(
     emptyMessage: String,
     onPlay: (MediaFile) -> Unit,
 ) {
-    Column(Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 20.dp)) {
-        Text(title, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-        Text("${files.size} файлов в медиатеке", color = AutoMuted)
-        Spacer(Modifier.height(22.dp))
+    Column(Modifier.fillMaxSize().padding(horizontal = 30.dp, vertical = 22.dp)) {
+        Text(title, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+        Text("${files.size} файлов в медиатеке", color = AutoMuted, fontSize = 15.sp)
+        Spacer(Modifier.height(24.dp))
 
         when {
             loading -> androidx.compose.foundation.layout.Box(
@@ -51,13 +49,13 @@ fun MediaLibraryScreen(
                 Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(emptyMessage, color = AutoMuted, fontSize = 17.sp)
+                Text(emptyMessage, color = AutoMuted, fontSize = 19.sp)
             }
 
             else -> LazyVerticalGrid(
-                columns = GridCells.Adaptive(240.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                columns = GridCells.Adaptive(300.dp),
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
                 items(files, key = MediaFile::uriString) { file ->
                     MediaFileCard(file = file, onClick = { onPlay(file) })
@@ -72,10 +70,9 @@ fun MediaFileCard(file: MediaFile, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(190.dp)
-            .clip(RoundedCornerShape(19.dp))
-            .background(AutoSurfaceHigh)
-            .clickable(onClick = onClick),
+            .height(232.dp)
+            .headUnitPressable(onClick = onClick, shape = RoundedCornerShape(22.dp))
+            .background(AutoSurfaceHigh),
     ) {
         VideoThumbnail(
             file = file,
@@ -88,21 +85,21 @@ fun MediaFileCard(file: MediaFile, onClick: () -> Unit) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 9.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
                 Text(
                     file.name,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     "${file.folderName} · ${formatSize(file.sizeBytes)}",
                     color = AutoMuted,
-                    fontSize = 10.sp,
+                    fontSize = 12.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
