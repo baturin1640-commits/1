@@ -25,7 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-private enum class VideoSourceRoute { SOURCES, LOCAL, RUTUBE }
+private enum class VideoSourceRoute { SOURCES, LOCAL }
 
 @Composable
 fun VideoSourcesScreen(
@@ -75,6 +75,7 @@ fun VideoExperienceScreen(
     favorites: FavoritesState,
     onOpenFolder: (MediaFolder) -> Unit,
     onPlay: (MediaFile) -> Unit,
+    onOpenRutube: () -> Unit,
     onToggleFolderFavorite: (MediaFolder) -> Unit,
     onToggleFileFavorite: (MediaFile) -> Unit,
 ) {
@@ -87,7 +88,7 @@ fun VideoExperienceScreen(
             localCount = state.videoFiles.size,
             sourceName = state.sources.firstOrNull().safeDisplayName(),
             onOpenLocal = { routeName = VideoSourceRoute.LOCAL.name },
-            onOpenRutube = { routeName = VideoSourceRoute.RUTUBE.name },
+            onOpenRutube = onOpenRutube,
         )
         VideoSourceRoute.LOCAL -> VideoFoldersScreen(
             state = state,
@@ -98,8 +99,5 @@ fun VideoExperienceScreen(
             onToggleFolderFavorite = onToggleFolderFavorite,
             onToggleFileFavorite = onToggleFileFavorite,
         )
-        VideoSourceRoute.RUTUBE -> RutubeScreen {
-            routeName = VideoSourceRoute.SOURCES.name
-        }
     }
 }
