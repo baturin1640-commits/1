@@ -16,8 +16,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
-    private var allFilesPromptShown = false
-    private var waitingForAllFilesSettings = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -35,15 +33,15 @@ class MainActivity : ComponentActivity() {
                             uri,
                             Intent.FLAG_GRANT_READ_URI_PERMISSION,
                         )
+                    }.onSuccess {
+                        viewModel.addSource(uri)
                     }
-                    viewModel.addSource(uri)
                 }
             }
 
             val permissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestMultiplePermissions(),
             ) {
-                requestAllFilesAccessOnce()
                 viewModel.refresh()
             }
 
@@ -51,8 +49,6 @@ class MainActivity : ComponentActivity() {
                 val missing = MediaPermissions.missingPermissions(this@MainActivity)
                 if (missing.isNotEmpty()) {
                     permissionLauncher.launch(missing)
-                } else {
-                    requestAllFilesAccessOnce()
                 }
             }
 
@@ -67,29 +63,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        if (waitingForAllFilesSettings) {
-            waitingForAllFilesSettings = false
-            viewModel.refresh()
-        }
-    }
-
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) enableImmersiveMode()
-    }
-
-    private fun requestAllFilesAccessOnce() {
-        if (!FullStorageAccess.isRequired()) return
-        if (FullStorageAccess.isGranted(this)) return
-        if (allFilesPromptShown) return
-
-        val intent = FullStorageAccess.settingsIntent(this) ?: return
-        allFilesPromptShown = true
-        waitingForAllFilesSettings = true
-        runCatching { startActivity(intent) }
-            .onFailure { waitingForAllFilesSettings = false }
     }
 
     private fun enableImmersiveMode() {
