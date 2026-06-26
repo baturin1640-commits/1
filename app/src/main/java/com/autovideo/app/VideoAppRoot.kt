@@ -47,19 +47,20 @@ fun VideoAppRoot(
     val favoritesStore = remember { FavoritesStore(context.applicationContext) }
     val playlistStore = remember { AudioPlaylistStore(context.applicationContext) }
     val favorites by favoritesStore.state.collectAsStateWithLifecycle()
+    val playlists by playlistStore.state.collectAsStateWithLifecycle()
     val sounds = remember { UiSoundPlayer(context.applicationContext) }
 
     DisposableEffect(sounds) { onDispose { sounds.release() } }
 
     CompositionLocalProvider(LocalUiSoundPlayer provides sounds) {
-        var sectionName by rememberSaveable { mutableStateOf(AppSection.HOME.name) }
+        var sectionName by rememberSaveable { mutableStateOf(RootSection.HOME.name) }
         var folderId by rememberSaveable { mutableStateOf<String?>(null) }
         var playingUri by rememberSaveable { mutableStateOf<String?>(null) }
         var modeName by rememberSaveable { mutableStateOf(PlayerDisplayMode.FULLSCREEN.name) }
         var queueUris by rememberSaveable { mutableStateOf(emptyList<String>()) }
         var lastExitBackMs by remember { mutableLongStateOf(0L) }
 
-        val section = runCatching { AppSection.valueOf(sectionName) }.getOrDefault(AppSection.HOME)
+        val section = runCatching { RootSection.valueOf(sectionName) }.getOrDefault(RootSection.HOME)
         val folder = state.folders.firstOrNull { it.id == folderId }
         val allFiles = state.folders.flatMap(MediaFolder::files).distinctBy(MediaFile::uriString)
         val playingFile = allFiles.firstOrNull { it.uriString == playingUri }
@@ -74,9 +75,19 @@ fun VideoAppRoot(
         }
 
         fun play(file: MediaFile, files: List<MediaFile>) {
+            val keepWindowed = playingFile != null && mode == PlayerDisplayMode.WINDOWED
             queueUris = files.distinctBy(MediaFile::uriString).map(MediaFile::uriString)
             playingUri = file.uriString
-            modeName = PlayerDisplayMode.FULLSCREEN.name
+            modeName = if (keepWindowed) {
+                PlayerDisplayMode.WINDOWED.name
+            } else {
+                PlayerDisplayMode.FULLSCREEN.name
+            }
+        }
+
+        fun playPlaylist(files: List<MediaFile>) {
+            val audioFiles = files.filter(MediaFile::isAudio).distinctBy(MediaFile::uriString)
+            audioFiles.firstOrNull()?.let { first -> play(first, audioFiles) }
         }
 
         fun backFolder() {
@@ -89,7 +100,10 @@ fun VideoAppRoot(
                     modeName = PlayerDisplayMode.WINDOWED.name
                 }
                 folder != null -> backFolder()
-                section != AppSection.HOME -> sectionName = AppSection.HOME.name
+                section != RootSection.HOME -> {
+                    sectionName = RootSection.HOME.name
+                    folderId = null
+                }
                 playingFile != null -> playingUri = null
                 else -> {
                     val now = SystemClock.elapsedRealtime()
@@ -136,19 +150,23 @@ fun VideoAppRoot(
                                 onToggleFolderFavorite = favoritesStore::toggle,
                                 onToggleFileFavorite = favoritesStore::toggle,
                             )
-                            destination == AppSection.HOME.name -> DashboardHomeScreen(
+
+                            destination == RootSection.HOME.name -> DashboardHomeScreen(
                                 state = state,
                                 favorites = favorites,
+                                playlists = playlists,
                                 onAddSource = onAddSource,
                                 onRefresh = onRefresh,
                                 onOpenFolder = { folderId = it.id },
                                 onPlay = { file ->
                                     play(file, if (file.isVideo) state.videoFiles else state.audioFiles)
                                 },
+                                onPlayPlaylist = ::playPlaylist,
                                 onToggleFolderFavorite = favoritesStore::toggle,
                                 onToggleFileFavorite = favoritesStore::toggle,
                             )
-                            destination == AppSection.VIDEO.name -> VideoExperienceScreen(
+
+                            destination == RootSection.VIDEO.name -> VideoExperienceScreen(
                                 state = state,
                                 playbackStore = playbackStore,
                                 favorites = favorites,
@@ -157,12 +175,32 @@ fun VideoAppRoot(
                                 onToggleFolderFavorite = favoritesStore::toggle,
                                 onToggleFileFavorite = favoritesStore::toggle,
                             )
-                            destination == AppSection.AUDIO.name -> AudioFoldersScreen(
+
+                            destination == RootSection.RUTUBE.name -> RutubeScreen {
+                                sectionName = RootSection.HOME.name
+                            }
+
+                            destination == RootSection.AUDIO.name -> MusicLibraryScreen(
+                                state = state,
+                                favorites = favorites,
+                                playlists = playlists,
+                                playlistStore = playlistStore,
+                                onOpenFolder = { folderId = it.id },
+                                onPlayPlaylist = ::playPlaylist,
+                                onToggleFolderFavorite = favoritesStore::toggle,
+                            )
+
+                            destination == RootSection.FAVORITES.name -> FavoritesScreen(
                                 state = state,
                                 favorites = favorites,
                                 onOpenFolder = { folderId = it.id },
+                                onPlay = { file ->
+                                    play(file, if (file.isVideo) state.videoFiles else state.audioFiles)
+                                },
                                 onToggleFolderFavorite = favoritesStore::toggle,
+                                onToggleFileFavorite = favoritesStore::toggle,
                             )
+
                             else -> StorageSettingsScreen(state, onAddSource, onRefresh, onRemoveSource)
                         }
                     }
