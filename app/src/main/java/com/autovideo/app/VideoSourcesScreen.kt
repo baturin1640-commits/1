@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Link
@@ -90,6 +89,7 @@ fun VideoExperienceScreen(
     val streamingViewModel: StreamingViewModel = viewModel()
     val streamingState by streamingViewModel.uiState.collectAsStateWithLifecycle()
     var routeName by rememberSaveable { mutableStateOf(VideoSourceRoute.SOURCES.name) }
+    var playerReturnRoute by rememberSaveable { mutableStateOf(VideoSourceRoute.SOURCES.name) }
     var streamUrl by rememberSaveable { mutableStateOf<String?>(null) }
     var streamTitle by rememberSaveable { mutableStateOf("") }
     val route = runCatching { VideoSourceRoute.valueOf(routeName) }.getOrDefault(VideoSourceRoute.SOURCES)
@@ -105,9 +105,10 @@ fun VideoExperienceScreen(
         if (uri != null) streamingViewModel.importPlaylist(uri)
     }
 
-    fun openStream(channel: IptvChannel) {
-        streamUrl = channel.streamUrl
-        streamTitle = channel.name
+    fun openStream(stream: OnlineStream, returnRoute: VideoSourceRoute) {
+        streamUrl = stream.url
+        streamTitle = stream.title
+        playerReturnRoute = returnRoute.name
         routeName = VideoSourceRoute.PLAYER.name
     }
 
@@ -138,23 +139,34 @@ fun VideoExperienceScreen(
             onToggleFavorite = streamingViewModel::toggleFavorite,
             onOpenChannel = { channel ->
                 streamingViewModel.recordOpened(channel)
-                openStream(channel)
+                openStream(
+                    OnlineStream(channel.streamUrl, channel.name),
+                    VideoSourceRoute.IPTV,
+                )
             },
         )
-        VideoSourceRoute.PLAYER -> streamUrl?.let { url ->
-            Media3StreamScreen(
-                OnlineStream(url, streamTitle.ifBlank { "Онлайн-видео" }),
-                onBack = { routeName = VideoSourceRoute.SOURCES.name },
-            )
-        } ?: run { routeName = VideoSourceRoute.SOURCES.name }
-        VideoSourceRoute.LINK -> VideoSourcesScreen(
-            localCount = state.videoFiles.size,
-            sourceName = "Введите ссылку в следующем обновлении",
-            onOpenLocal = { routeName = VideoSourceRoute.LOCAL.name },
-            onOpenUsb = { treePicker.launch(null) },
-            onOpenRutube = { routeName = VideoSourceRoute.RUTUBE.name },
-            onOpenIptv = { routeName = VideoSourceRoute.IPTV.name },
-            onOpenLink = { routeName = VideoSourceRoute.SOURCES.name },
+        VideoSourceRoute.LINK -> SecureStreamEntry(
+            onBack = { routeName = VideoSourceRoute.SOURCES.name },
+            onOpen = { stream -> openStream(stream, VideoSourceRoute.LINK) },
         )
+        VideoSourceRoute.PLAYER -> {
+            val url = streamUrl
+            if (url != null) {
+                Media3StreamScreen(
+                    stream = OnlineStream(url, streamTitle.ifBlank { "Онлайн-видео" }),
+                    onBack = { routeName = playerReturnRoute },
+                )
+            } else {
+                VideoSourcesScreen(
+                    state.videoFiles.size,
+                    state.sources.firstOrNull()?.name,
+                    { routeName = VideoSourceRoute.LOCAL.name },
+                    { treePicker.launch(null) },
+                    { routeName = VideoSourceRoute.RUTUBE.name },
+                    { routeName = VideoSourceRoute.IPTV.name },
+                    { routeName = VideoSourceRoute.LINK.name },
+                )
+            }
+        }
     }
 }
