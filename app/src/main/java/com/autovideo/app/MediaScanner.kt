@@ -21,68 +21,62 @@ class MediaScanner(private val context: Context) {
     )
 
     fun scan(uris: List<Uri>): Pair<List<RemovableSource>, List<MediaFolder>> {
-        val sources = mutableListOf<RemovableSource>()
-        val folders = mutableListOf<MediaFolder>()
-        val deadlineNanos = System.nanoTime() + 6_000_000_000L
+        val treeUri = uris.firstOrNull() ?: return emptyList<RemovableSource>() to emptyList()
+        val root = runCatching { DocumentFile.fromTreeUri(context, treeUri) }.getOrNull()
+        val sourceName = root?.name?.takeIf(String::isNotBlank)
+            ?: treeUri.lastPathSegment?.substringAfterLast(':')?.takeIf(String::isNotBlank)
+            ?: "Накопитель"
+        val connected = root?.exists() == true && root.canRead()
+        val source = RemovableSource(treeUri.toString(), sourceName, connected)
+        if (!connected || root == null) return listOf(source) to emptyList()
+
+        val directories = mutableListOf<IndexedMediaDirectory>()
+        val queue = ArrayDeque<DirectoryNode>()
+        queue.add(DirectoryNode(root, path = "", depth = 0))
+        val seen = hashSetOf<String>()
+        val deadlineNanos = System.nanoTime() + 10_000_000_000L
         var visitedDirectories = 0
 
-        uris.forEach { treeUri ->
-            if (System.nanoTime() >= deadlineNanos || visitedDirectories >= 4_000) return@forEach
-            val root = runCatching { DocumentFile.fromTreeUri(context, treeUri) }.getOrNull()
-            val sourceName = root?.name?.takeIf(String::isNotBlank)
-                ?: treeUri.lastPathSegment?.substringAfterLast(':')?.takeIf(String::isNotBlank)
-                ?: "Съёмный носитель"
-            val connected = root?.exists() == true && root.canRead()
-            sources += RemovableSource(treeUri.toString(), sourceName, connected)
-            if (!connected || root == null) return@forEach
+        while (queue.isNotEmpty() && System.nanoTime() < deadlineNanos && visitedDirectories < 8_000) {
+            val node = queue.removeFirst()
+            if (node.depth > 24) continue
+            if (!seen.add(node.directory.uri.toString())) continue
+            visitedDirectories++
 
-            val queue = ArrayDeque<DirectoryNode>()
-            queue.add(DirectoryNode(root, 0))
-            val seen = hashSetOf<String>()
+            val children = runCatching { node.directory.listFiles() }.getOrDefault(emptyArray())
+            val folderName = node.directory.name?.takeIf(String::isNotBlank) ?: sourceName
+            val mediaFiles = children
+                .asSequence()
+                .filter(DocumentFile::isFile)
+                .mapNotNull { toMediaFile(it, folderName, sourceName) }
+                .toList()
 
-            while (queue.isNotEmpty() && System.nanoTime() < deadlineNanos && visitedDirectories < 4_000) {
-                val node = queue.removeFirst()
-                if (node.depth > 16) continue
-                val uriKey = node.directory.uri.toString()
-                if (!seen.add(uriKey)) continue
-                visitedDirectories++
-
-                val children = runCatching { node.directory.listFiles() }.getOrDefault(emptyArray())
-                val folderName = node.directory.name?.takeIf(String::isNotBlank) ?: "Без названия"
-                val mediaFiles = children
-                    .asSequence()
-                    .filter(DocumentFile::isFile)
-                    .mapNotNull { toMediaFile(it, folderName, sourceName) }
-                    .sortedBy { it.name.lowercase(Locale.getDefault()) }
-                    .toList()
-
-                if (mediaFiles.isNotEmpty()) {
-                    folders += MediaFolder(
-                        id = "${treeUri}#${node.directory.uri}",
-                        name = folderName,
-                        sourceName = sourceName,
-                        sourceUriString = treeUri.toString(),
-                        files = mediaFiles,
-                    )
-                }
-
-                children
-                    .asSequence()
-                    .filter { it.isDirectory && it.canRead() }
-                    .filter { child ->
-                        val name = child.name.orEmpty().lowercase(Locale.ROOT)
-                        name !in skippedNames && !name.startsWith('.')
-                    }
-                    .sortedBy { directoryPriority(it.name.orEmpty()) }
-                    .forEach { queue.add(DirectoryNode(it, node.depth + 1)) }
+            if (mediaFiles.isNotEmpty()) {
+                directories += IndexedMediaDirectory(node.path, mediaFiles)
             }
+
+            children
+                .asSequence()
+                .filter { it.isDirectory && it.canRead() }
+                .filter { child ->
+                    val name = child.name.orEmpty().lowercase(Locale.ROOT)
+                    name !in skippedNames && !name.startsWith('.')
+                }
+                .sortedBy { directoryPriority(it.name.orEmpty()) }
+                .forEach { child ->
+                    val childName = child.name?.takeIf(String::isNotBlank) ?: return@forEach
+                    val childPath = listOf(node.path, childName)
+                        .filter(String::isNotBlank)
+                        .joinToString("/")
+                    queue.add(DirectoryNode(child, childPath, node.depth + 1))
+                }
         }
 
-        return sources.sortedBy { it.name.lowercase(Locale.getDefault()) } to
-            folders.sortedWith(
-                compareBy<MediaFolder> { it.sourceName.lowercase(Locale.getDefault()) }
-                    .thenBy { it.name.lowercase(Locale.getDefault()) }
-            )
+        return listOf(source) to MediaHierarchy.build(
+            sourceName = sourceName,
+            sourceUri = treeUri.toString(),
+            directories = directories,
+        )
     }
 
     private fun directoryPriority(name: String): Int = when (name.lowercase(Locale.ROOT)) {
@@ -119,6 +113,7 @@ class MediaScanner(private val context: Context) {
 
     private data class DirectoryNode(
         val directory: DocumentFile,
+        val path: String,
         val depth: Int,
     )
 }
