@@ -30,7 +30,7 @@ fun AppClock(modifier: Modifier = Modifier, compact: Boolean = false) {
     var time by remember { mutableStateOf(formatClock()) }
     LaunchedEffect(Unit) {
         while (true) {
-            delay(15_000L)
+            delay(60_000L)
             time = formatClock()
         }
     }
