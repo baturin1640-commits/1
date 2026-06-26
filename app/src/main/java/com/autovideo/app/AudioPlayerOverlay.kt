@@ -4,7 +4,6 @@ package com.autovideo.app
 
 import android.content.Context
 import android.media.audiofx.Equalizer
-import android.os.SystemClock
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,7 +30,6 @@ import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Forward10
-import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
@@ -43,8 +41,6 @@ import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material.icons.rounded.Speed
-import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
@@ -101,7 +97,6 @@ private val audioEqPresets = listOf(
 
 private val audioEqLabels = listOf("60 Гц", "170 Гц", "310 Гц", "1 кГц", "3 кГц", "10 кГц")
 private val audioEqFrequencies = intArrayOf(60, 170, 310, 1_000, 3_000, 10_000)
-private val audioSpeeds = listOf(0.75f, 1f, 1.1f, 1.25f, 1.5f, 2f)
 
 @Composable
 fun AudioPlayerOverlay(
@@ -141,18 +136,13 @@ fun AudioPlayerOverlay(
     var scrubbing by remember { mutableStateOf(false) }
     var shuffleEnabled by remember { mutableStateOf(preferences.getBoolean("shuffle", false)) }
     var repeatMode by remember { mutableStateOf(preferences.getInt("repeat_mode", Player.REPEAT_MODE_OFF)) }
-    var playbackSpeed by remember { mutableFloatStateOf(preferences.getFloat("speed", 1f)) }
     var showEqualizer by remember { mutableStateOf(false) }
     var showPlaylists by remember { mutableStateOf(false) }
     var showQueue by remember { mutableStateOf(false) }
-    var showSleepTimer by remember { mutableStateOf(false) }
-    var sleepDeadlineMs by remember { mutableLongStateOf(0L) }
     var equalizer by remember { mutableStateOf<Equalizer?>(null) }
     var equalizerSessionId by remember { mutableStateOf(C.AUDIO_SESSION_ID_UNSET) }
     var eqLevels by remember {
-        mutableStateOf(
-            List(6) { index -> preferences.getFloat("eq_$index", 0f) }
-        )
+        mutableStateOf(List(6) { index -> preferences.getFloat("eq_$index", 0f) })
     }
 
     DisposableEffect(player) {
@@ -167,8 +157,7 @@ fun AudioPlayerOverlay(
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                val selected = audioQueue.firstOrNull { it.uriString == mediaItem?.mediaId }
-                if (selected != null) latestSelectFile(selected)
+                audioQueue.firstOrNull { it.uriString == mediaItem?.mediaId }?.let(latestSelectFile)
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -191,8 +180,6 @@ fun AudioPlayerOverlay(
     LaunchedEffect(queueKey, file.uriString) {
         if (audioQueue.isEmpty()) return@LaunchedEffect
         val targetIndex = audioQueue.indexOfFirst { it.uriString == file.uriString }.coerceAtLeast(0)
-        val currentId = player.currentMediaItem?.mediaId
-
         if (loadedQueueKey != queueKey) {
             val items = audioQueue.map { track ->
                 MediaItem.Builder()
@@ -210,18 +197,17 @@ fun AudioPlayerOverlay(
             player.setMediaItems(items, targetIndex, playbackStore.position(file))
             player.shuffleModeEnabled = shuffleEnabled
             player.repeatMode = repeatMode
-            player.setPlaybackSpeed(playbackSpeed)
             player.prepare()
             player.play()
             loadedQueueKey = queueKey
-        } else if (currentId != file.uriString) {
+        } else if (player.currentMediaItem?.mediaId != file.uriString) {
             player.seekTo(targetIndex, playbackStore.position(file))
             player.play()
         }
     }
 
     LaunchedEffect(player, queueKey) {
-        var lastSavedAt = 0L
+        var tick = 0
         while (isActive) {
             val total = player.duration.coerceAtLeast(0L)
             val current = player.currentPosition.coerceAtLeast(0L)
@@ -236,12 +222,10 @@ fun AudioPlayerOverlay(
                     0f
                 }
             }
-            val now = SystemClock.elapsedRealtime()
-            if (now - lastSavedAt >= 5_000L && total > 0L) {
+            if (tick++ % 20 == 0 && total > 0L) {
                 audioQueue.firstOrNull { it.uriString == player.currentMediaItem?.mediaId }?.let { currentFile ->
                     playbackStore.save(currentFile, current, total)
                 }
-                lastSavedAt = now
             }
             delay(250L)
         }
@@ -252,9 +236,7 @@ fun AudioPlayerOverlay(
             val sessionId = player.audioSessionId
             if (sessionId != C.AUDIO_SESSION_ID_UNSET && sessionId > 0 && sessionId != equalizerSessionId) {
                 runCatching { equalizer?.release() }
-                equalizer = runCatching {
-                    Equalizer(0, sessionId).apply { enabled = true }
-                }.getOrNull()
+                equalizer = runCatching { Equalizer(0, sessionId).apply { enabled = true } }.getOrNull()
                 equalizerSessionId = sessionId
                 applySixBandEqualizer(equalizer, eqLevels)
             }
@@ -263,37 +245,24 @@ fun AudioPlayerOverlay(
     }
 
     LaunchedEffect(eqLevels) {
-        eqLevels.forEachIndexed { index, value ->
-            preferences.edit().putFloat("eq_$index", value).apply()
-        }
+        val editor = preferences.edit()
+        eqLevels.forEachIndexed { index, value -> editor.putFloat("eq_$index", value) }
+        editor.apply()
         applySixBandEqualizer(equalizer, eqLevels)
     }
 
-    LaunchedEffect(shuffleEnabled, repeatMode, playbackSpeed) {
+    LaunchedEffect(shuffleEnabled, repeatMode) {
         player.shuffleModeEnabled = shuffleEnabled
         player.repeatMode = repeatMode
-        player.setPlaybackSpeed(playbackSpeed)
         preferences.edit()
             .putBoolean("shuffle", shuffleEnabled)
             .putInt("repeat_mode", repeatMode)
-            .putFloat("speed", playbackSpeed)
             .apply()
-    }
-
-    LaunchedEffect(sleepDeadlineMs) {
-        if (sleepDeadlineMs <= 0L) return@LaunchedEffect
-        val remaining = sleepDeadlineMs - SystemClock.elapsedRealtime()
-        if (remaining > 0L) delay(remaining)
-        if (sleepDeadlineMs > 0L) {
-            player.pause()
-            sleepDeadlineMs = 0L
-        }
     }
 
     fun seekBy(deltaMs: Long) {
         val total = player.duration.coerceAtLeast(0L)
-        if (total <= 0L) return
-        player.seekTo((player.currentPosition + deltaMs).coerceIn(0L, total))
+        if (total > 0L) player.seekTo((player.currentPosition + deltaMs).coerceIn(0L, total))
     }
 
     fun toggleRepeat() {
@@ -302,11 +271,6 @@ fun AudioPlayerOverlay(
             Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
             else -> Player.REPEAT_MODE_OFF
         }
-    }
-
-    fun cycleSpeed() {
-        val currentIndex = audioSpeeds.indexOfFirst { it == playbackSpeed }.coerceAtLeast(0)
-        playbackSpeed = audioSpeeds[(currentIndex + 1) % audioSpeeds.size]
     }
 
     if (displayMode == PlayerDisplayMode.WINDOWED) {
@@ -323,7 +287,6 @@ fun AudioPlayerOverlay(
     } else {
         Box(
             modifier = modifier
-                .clip(RoundedCornerShape(0.dp))
                 .background(
                     Brush.linearGradient(
                         listOf(Color(0xFF050711), Color(0xFF17102E), Color(0xFF071A26))
@@ -332,29 +295,22 @@ fun AudioPlayerOverlay(
                 .padding(22.dp),
         ) {
             Column(Modifier.fillMaxSize()) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Музыка", color = AutoText, fontSize = 29.sp, fontWeight = FontWeight.Bold)
-                        Text(
-                            "${audioQueue.size} треков в очереди",
-                            color = AutoMuted,
-                            fontSize = 13.sp,
-                        )
+                        Text("${audioQueue.size} треков в очереди", color = AutoMuted, fontSize = 13.sp)
                     }
                     HeadUnitIconButton(
-                        icon = Icons.Rounded.QueueMusic,
-                        contentDescription = "Очередь",
+                        Icons.Rounded.QueueMusic,
+                        "Очередь",
                         onClick = { showQueue = true },
                         size = 58.dp,
                         iconSize = 31.dp,
                     )
                     Spacer(Modifier.width(8.dp))
                     HeadUnitIconButton(
-                        icon = Icons.Rounded.Equalizer,
-                        contentDescription = "Эквалайзер",
+                        Icons.Rounded.Equalizer,
+                        "Эквалайзер",
                         onClick = { showEqualizer = true },
                         size = 58.dp,
                         iconSize = 31.dp,
@@ -362,24 +318,24 @@ fun AudioPlayerOverlay(
                     )
                     Spacer(Modifier.width(8.dp))
                     HeadUnitIconButton(
-                        icon = Icons.Rounded.PlaylistAdd,
-                        contentDescription = "Плейлисты",
+                        Icons.Rounded.PlaylistAdd,
+                        "Плейлисты",
                         onClick = { showPlaylists = true },
                         size = 58.dp,
                         iconSize = 31.dp,
                     )
                     Spacer(Modifier.width(8.dp))
                     HeadUnitIconButton(
-                        icon = Icons.Rounded.ExpandMore,
-                        contentDescription = "Свернуть плеер",
+                        Icons.Rounded.ExpandMore,
+                        "Свернуть плеер",
                         onClick = { onDisplayModeChange(PlayerDisplayMode.WINDOWED) },
                         size = 58.dp,
                         iconSize = 31.dp,
                     )
                     Spacer(Modifier.width(8.dp))
                     HeadUnitIconButton(
-                        icon = Icons.Rounded.Close,
-                        contentDescription = "Закрыть плеер",
+                        Icons.Rounded.Close,
+                        "Закрыть плеер",
                         onClick = onClose,
                         size = 58.dp,
                         iconSize = 31.dp,
@@ -396,18 +352,14 @@ fun AudioPlayerOverlay(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(310.dp)
+                            .size(300.dp)
                             .clip(RoundedCornerShape(42.dp))
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(AutoPink, AutoPurple, AutoBlue, AutoGreen)
-                                )
-                            ),
+                            .background(Brush.linearGradient(listOf(AutoPink, AutoPurple, AutoBlue, AutoGreen))),
                         contentAlignment = Alignment.Center,
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(212.dp)
+                                .size(206.dp)
                                 .clip(CircleShape)
                                 .background(Color(0xC20A0913)),
                             contentAlignment = Alignment.Center,
@@ -416,7 +368,7 @@ fun AudioPlayerOverlay(
                                 Icons.Rounded.MusicNote,
                                 contentDescription = null,
                                 tint = Color.White,
-                                modifier = Modifier.size(116.dp),
+                                modifier = Modifier.size(112.dp),
                             )
                         }
                     }
@@ -471,8 +423,8 @@ fun AudioPlayerOverlay(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             HeadUnitIconButton(
-                                icon = Icons.Rounded.Shuffle,
-                                contentDescription = "Перемешать",
+                                Icons.Rounded.Shuffle,
+                                "Перемешать",
                                 onClick = { shuffleEnabled = !shuffleEnabled },
                                 size = 60.dp,
                                 iconSize = 31.dp,
@@ -480,24 +432,24 @@ fun AudioPlayerOverlay(
                             )
                             Spacer(Modifier.width(10.dp))
                             HeadUnitIconButton(
-                                icon = Icons.Rounded.SkipPrevious,
-                                contentDescription = "Предыдущий трек",
+                                Icons.Rounded.SkipPrevious,
+                                "Предыдущий трек",
                                 onClick = player::seekToPreviousMediaItem,
                                 size = 68.dp,
                                 iconSize = 38.dp,
                             )
                             Spacer(Modifier.width(10.dp))
                             HeadUnitIconButton(
-                                icon = Icons.Rounded.Replay10,
-                                contentDescription = "Назад на 10 секунд",
+                                Icons.Rounded.Replay10,
+                                "Назад на 10 секунд",
                                 onClick = { seekBy(-10_000L) },
                                 size = 62.dp,
                                 iconSize = 34.dp,
                             )
                             Spacer(Modifier.width(10.dp))
                             HeadUnitIconButton(
-                                icon = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                                contentDescription = if (isPlaying) "Пауза" else "Воспроизвести",
+                                if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                                if (isPlaying) "Пауза" else "Воспроизвести",
                                 onClick = { if (player.isPlaying) player.pause() else player.play() },
                                 size = 88.dp,
                                 iconSize = 50.dp,
@@ -505,28 +457,24 @@ fun AudioPlayerOverlay(
                             )
                             Spacer(Modifier.width(10.dp))
                             HeadUnitIconButton(
-                                icon = Icons.Rounded.Forward10,
-                                contentDescription = "Вперёд на 10 секунд",
+                                Icons.Rounded.Forward10,
+                                "Вперёд на 10 секунд",
                                 onClick = { seekBy(10_000L) },
                                 size = 62.dp,
                                 iconSize = 34.dp,
                             )
                             Spacer(Modifier.width(10.dp))
                             HeadUnitIconButton(
-                                icon = Icons.Rounded.SkipNext,
-                                contentDescription = "Следующий трек",
+                                Icons.Rounded.SkipNext,
+                                "Следующий трек",
                                 onClick = player::seekToNextMediaItem,
                                 size = 68.dp,
                                 iconSize = 38.dp,
                             )
                             Spacer(Modifier.width(10.dp))
                             HeadUnitIconButton(
-                                icon = if (repeatMode == Player.REPEAT_MODE_ONE) {
-                                    Icons.Rounded.RepeatOne
-                                } else {
-                                    Icons.Rounded.Repeat
-                                },
-                                contentDescription = "Повтор",
+                                if (repeatMode == Player.REPEAT_MODE_ONE) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat,
+                                "Повтор",
                                 onClick = ::toggleRepeat,
                                 size = 60.dp,
                                 iconSize = 31.dp,
@@ -535,26 +483,12 @@ fun AudioPlayerOverlay(
                         }
 
                         Spacer(Modifier.height(18.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            HeadUnitActionButton(
-                                text = "${playbackSpeed}×",
-                                icon = Icons.Rounded.Speed,
-                                onClick = ::cycleSpeed,
-                                backgroundColor = Color(0xFF31527A),
-                            )
-                            HeadUnitActionButton(
-                                text = if (sleepDeadlineMs > 0L) "Таймер включён" else "Таймер сна",
-                                icon = Icons.Rounded.Timer,
-                                onClick = { showSleepTimer = true },
-                                backgroundColor = Color(0xFF5B315F),
-                            )
-                            HeadUnitActionButton(
-                                text = "В плейлист",
-                                icon = Icons.Rounded.LibraryMusic,
-                                onClick = { showPlaylists = true },
-                                backgroundColor = Color(0xFF2D5B55),
-                            )
-                        }
+                        HeadUnitActionButton(
+                            text = "Добавить в плейлист",
+                            icon = Icons.Rounded.PlaylistAdd,
+                            onClick = { showPlaylists = true },
+                            backgroundColor = Color(0xFF2D5B55),
+                        )
 
                         if (isLoading) {
                             Spacer(Modifier.height(12.dp))
@@ -607,21 +541,6 @@ fun AudioPlayerOverlay(
                 showQueue = false
             },
             onDismiss = { showQueue = false },
-        )
-    }
-
-    if (showSleepTimer) {
-        AudioSleepTimerDialog(
-            active = sleepDeadlineMs > 0L,
-            onSelectMinutes = { minutes ->
-                sleepDeadlineMs = if (minutes <= 0) {
-                    0L
-                } else {
-                    SystemClock.elapsedRealtime() + minutes * 60_000L
-                }
-                showSleepTimer = false
-            },
-            onDismiss = { showSleepTimer = false },
         )
     }
 }
@@ -783,7 +702,7 @@ private fun AudioPlaylistsDialog(
                     OutlinedTextField(
                         value = newName,
                         onValueChange = { newName = it.take(60) },
-                        label = { Text("Новый плейлист") },
+                        label = { Text("Название нового плейлиста") },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                     )
@@ -797,6 +716,7 @@ private fun AudioPlaylistsDialog(
                                 newName = ""
                             }
                         },
+                        enabled = newName.trim().isNotEmpty(),
                         size = 54.dp,
                         iconSize = 29.dp,
                         backgroundColor = AutoPurple,
@@ -804,7 +724,7 @@ private fun AudioPlaylistsDialog(
                 }
                 Spacer(Modifier.height(12.dp))
                 if (playlists.isEmpty()) {
-                    Text("Создайте первый плейлист", color = AutoMuted)
+                    Text("Введите название и нажмите кнопку +", color = AutoMuted)
                 } else {
                     LazyColumn(
                         modifier = Modifier.fillMaxHeight(0.58f),
@@ -825,16 +745,16 @@ private fun AudioPlaylistsDialog(
                                     Text("${playlist.trackUris.size} треков", color = AutoMuted, fontSize = 11.sp)
                                 }
                                 HeadUnitIconButton(
-                                    icon = Icons.Rounded.Add,
-                                    contentDescription = "Добавить текущий трек",
+                                    Icons.Rounded.Add,
+                                    "Добавить текущий трек",
                                     onClick = { playlistStore.addTrack(playlist.id, currentFile) },
                                     size = 42.dp,
                                     iconSize = 23.dp,
                                 )
                                 Spacer(Modifier.width(5.dp))
                                 HeadUnitIconButton(
-                                    icon = Icons.Rounded.PlayArrow,
-                                    contentDescription = "Воспроизвести плейлист",
+                                    Icons.Rounded.PlayArrow,
+                                    "Воспроизвести плейлист",
                                     onClick = {
                                         val files = playlist.trackUris.mapNotNull { uri ->
                                             allAudioFiles.firstOrNull { it.uriString == uri }
@@ -847,8 +767,8 @@ private fun AudioPlaylistsDialog(
                                 )
                                 Spacer(Modifier.width(5.dp))
                                 HeadUnitIconButton(
-                                    icon = Icons.Rounded.Delete,
-                                    contentDescription = "Удалить плейлист",
+                                    Icons.Rounded.Delete,
+                                    "Удалить плейлист",
                                     onClick = { playlistStore.delete(playlist.id) },
                                     size = 42.dp,
                                     iconSize = 23.dp,
@@ -889,11 +809,7 @@ private fun AudioQueueDialog(
                                 shape = RoundedCornerShape(15.dp),
                             )
                             .background(
-                                if (track.uriString == currentUri) {
-                                    AutoPurple.copy(alpha = 0.32f)
-                                } else {
-                                    AutoSurfaceHigh
-                                },
+                                if (track.uriString == currentUri) AutoPurple.copy(alpha = 0.32f) else AutoSurfaceHigh,
                                 RoundedCornerShape(15.dp),
                             )
                             .padding(12.dp),
@@ -916,43 +832,6 @@ private fun AudioQueueDialog(
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } },
-        containerColor = AutoSurface,
-    )
-}
-
-@Composable
-private fun AudioSleepTimerDialog(
-    active: Boolean,
-    onSelectMinutes: (Int) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val values = listOf(15, 30, 45, 60, 90)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Таймер сна", color = AutoText) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (active) {
-                    HeadUnitActionButton(
-                        text = "Отключить таймер",
-                        icon = Icons.Rounded.Timer,
-                        onClick = { onSelectMinutes(0) },
-                        backgroundColor = Color(0xFF4A1B2B),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                values.forEach { minutes ->
-                    HeadUnitActionButton(
-                        text = "$minutes минут",
-                        icon = Icons.Rounded.Timer,
-                        onClick = { onSelectMinutes(minutes) },
-                        backgroundColor = AutoSurfaceBright,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Отмена") } },
         containerColor = AutoSurface,
     )
 }
