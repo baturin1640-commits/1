@@ -37,8 +37,10 @@ fun Modifier.headUnitPressable(
     onClick: () -> Unit,
     enabled: Boolean = true,
     shape: Shape = RoundedCornerShape(20.dp),
+    sound: UiSound = UiSound.BUTTON,
 ): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
+    val soundPlayer = LocalUiSoundPlayer.current
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (pressed && enabled) 0.95f else 1f,
@@ -56,7 +58,10 @@ fun Modifier.headUnitPressable(
             enabled = enabled,
             interactionSource = interactionSource,
             indication = null,
-            onClick = onClick,
+            onClick = {
+                soundPlayer?.play(sound)
+                onClick()
+            },
         )
 }
 
@@ -66,11 +71,12 @@ fun HeadUnitIconButton(
     contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    size: Dp = 68.dp,
-    iconSize: Dp = 36.dp,
+    size: Dp = 72.dp,
+    iconSize: Dp = 39.dp,
     backgroundColor: Color = AutoSurfaceHigh,
     tint: Color = Color.White,
     enabled: Boolean = true,
+    sound: UiSound = UiSound.BUTTON,
 ) {
     Box(
         modifier = modifier
@@ -78,7 +84,8 @@ fun HeadUnitIconButton(
             .headUnitPressable(
                 onClick = onClick,
                 enabled = enabled,
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(21.dp),
+                sound = sound,
             )
             .background(if (enabled) backgroundColor else backgroundColor.copy(alpha = 0.45f)),
         contentAlignment = Alignment.Center,
@@ -99,12 +106,14 @@ fun HeadUnitActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     backgroundColor: Color = AutoPurple,
+    sound: UiSound = UiSound.BUTTON,
 ) {
     Row(
         modifier = modifier
             .headUnitPressable(
                 onClick = onClick,
                 shape = RoundedCornerShape(20.dp),
+                sound = sound,
             )
             .background(backgroundColor)
             .padding(horizontal = 22.dp, vertical = 16.dp),
