@@ -53,7 +53,7 @@ class MainActivity : ComponentActivity() {
             }
 
             AutoVideoTheme {
-                AutoVideoApp(
+                VideoAppRoot(
                     state = state,
                     onAddSource = { folderPicker.launch(null) },
                     onRefresh = viewModel::refresh,
