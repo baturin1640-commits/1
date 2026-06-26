@@ -10,7 +10,7 @@ fun PlayerScreen(
     onSelectFile: (MediaFile) -> Unit,
     onBack: () -> Unit,
 ) {
-    AdvancedPlayerScreen(
+    VlcPlayerScreen(
         file = file,
         queue = queue,
         playbackStore = playbackStore,
