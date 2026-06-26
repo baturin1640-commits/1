@@ -164,7 +164,7 @@ fun VideoAppRoot(
             }
 
             if (playingFile != null) {
-                StablePlayerOverlay(
+                ReliablePlayerOverlay(
                     file = playingFile,
                     queue = queue,
                     playbackStore = playbackStore,
