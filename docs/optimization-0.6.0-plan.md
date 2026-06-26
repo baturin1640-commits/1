@@ -1,0 +1,1 @@
+Auto Video 0.6.0 prioritizes startup speed, persistent media indexing, stable video resume, readable dark UI, and head-unit-sized controls.
