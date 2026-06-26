@@ -16,6 +16,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
+    private var allFilesPromptShown = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,6 +42,7 @@ class MainActivity : ComponentActivity() {
             val permissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestMultiplePermissions(),
             ) {
+                requestAllFilesAccessOnce()
                 viewModel.refresh()
             }
 
@@ -49,6 +51,7 @@ class MainActivity : ComponentActivity() {
                 if (missing.isNotEmpty()) {
                     permissionLauncher.launch(missing)
                 } else {
+                    requestAllFilesAccessOnce()
                     viewModel.refresh()
                 }
             }
@@ -64,9 +67,25 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        viewModel.refresh()
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) enableImmersiveMode()
+    }
+
+    private fun requestAllFilesAccessOnce() {
+        if (!FullStorageAccess.isRequired()) return
+        if (FullStorageAccess.isGranted(this)) return
+        if (allFilesPromptShown) return
+
+        allFilesPromptShown = true
+        FullStorageAccess.settingsIntent(this)?.let { intent ->
+            runCatching { startActivity(intent) }
+        }
     }
 
     private fun enableImmersiveMode() {
