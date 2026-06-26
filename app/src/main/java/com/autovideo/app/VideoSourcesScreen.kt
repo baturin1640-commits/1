@@ -1,5 +1,8 @@
 package com.autovideo.app
 
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -18,13 +21,22 @@ import androidx.compose.material.icons.rounded.Usb
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+
+private enum class VideoSourceRoute { SOURCES, LOCAL, RUTUBE, IPTV, LINK, PLAYER }
 
 @Composable
 fun VideoSourcesScreen(
@@ -60,5 +72,89 @@ fun VideoSourcesScreen(
             HeadUnitActionButton("IPTV и M3U", Icons.Rounded.LiveTv, onOpenIptv, backgroundColor = AutoPink)
             HeadUnitActionButton("Открыть ссылку", Icons.Rounded.Link, onOpenLink, backgroundColor = AutoGreen)
         }
+    }
+}
+
+@Composable
+fun VideoExperienceScreen(
+    state: LibraryUiState,
+    playbackStore: PlaybackStore,
+    favorites: FavoritesState,
+    onOpenFolder: (MediaFolder) -> Unit,
+    onPlay: (MediaFile) -> Unit,
+    onToggleFolderFavorite: (MediaFolder) -> Unit,
+    onToggleFileFavorite: (MediaFile) -> Unit,
+) {
+    val context = LocalContext.current
+    val mainViewModel: MainViewModel = viewModel()
+    val streamingViewModel: StreamingViewModel = viewModel()
+    val streamingState by streamingViewModel.uiState.collectAsStateWithLifecycle()
+    var routeName by rememberSaveable { mutableStateOf(VideoSourceRoute.SOURCES.name) }
+    var streamUrl by rememberSaveable { mutableStateOf<String?>(null) }
+    var streamTitle by rememberSaveable { mutableStateOf("") }
+    val route = runCatching { VideoSourceRoute.valueOf(routeName) }.getOrDefault(VideoSourceRoute.SOURCES)
+
+    val treePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }.onSuccess { mainViewModel.addSource(uri) }
+        }
+    }
+    val playlistPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) streamingViewModel.importPlaylist(uri)
+    }
+
+    fun openStream(channel: IptvChannel) {
+        streamUrl = channel.streamUrl
+        streamTitle = channel.name
+        routeName = VideoSourceRoute.PLAYER.name
+    }
+
+    when (route) {
+        VideoSourceRoute.SOURCES -> VideoSourcesScreen(
+            localCount = state.videoFiles.size,
+            sourceName = state.sources.firstOrNull()?.name,
+            onOpenLocal = { routeName = VideoSourceRoute.LOCAL.name },
+            onOpenUsb = { treePicker.launch(null) },
+            onOpenRutube = { routeName = VideoSourceRoute.RUTUBE.name },
+            onOpenIptv = { routeName = VideoSourceRoute.IPTV.name },
+            onOpenLink = { routeName = VideoSourceRoute.LINK.name },
+        )
+        VideoSourceRoute.LOCAL -> VideoFoldersScreen(
+            state, playbackStore, favorites, onOpenFolder, onPlay,
+            onToggleFolderFavorite, onToggleFileFavorite,
+        )
+        VideoSourceRoute.RUTUBE -> RutubeScreen { routeName = VideoSourceRoute.SOURCES.name }
+        VideoSourceRoute.IPTV -> IptvScreen(
+            state = streamingState,
+            onBack = { routeName = VideoSourceRoute.SOURCES.name },
+            onImportPlaylist = {
+                playlistPicker.launch(arrayOf("audio/x-mpegurl", "application/vnd.apple.mpegurl", "text/plain"))
+            },
+            onLoadRemote = streamingViewModel::loadRemotePlaylist,
+            onQueryChange = streamingViewModel::updateQuery,
+            onGroupChange = streamingViewModel::selectGroup,
+            onToggleFavorite = streamingViewModel::toggleFavorite,
+            onOpenChannel = { channel ->
+                streamingViewModel.recordOpened(channel)
+                openStream(channel)
+            },
+        )
+        VideoSourceRoute.PLAYER -> streamUrl?.let { url ->
+            Media3StreamScreen(
+                OnlineStream(url, streamTitle.ifBlank { "Онлайн-видео" }),
+                onBack = { routeName = VideoSourceRoute.SOURCES.name },
+            )
+        } ?: run { routeName = VideoSourceRoute.SOURCES.name }
+        VideoSourceRoute.LINK -> VideoSourcesScreen(
+            localCount = state.videoFiles.size,
+            sourceName = "Введите ссылку в следующем обновлении",
+            onOpenLocal = { routeName = VideoSourceRoute.LOCAL.name },
+            onOpenUsb = { treePicker.launch(null) },
+            onOpenRutube = { routeName = VideoSourceRoute.RUTUBE.name },
+            onOpenIptv = { routeName = VideoSourceRoute.IPTV.name },
+            onOpenLink = { routeName = VideoSourceRoute.SOURCES.name },
+        )
     }
 }
