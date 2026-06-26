@@ -1,0 +1,40 @@
+name: Fix Android Settings import
+
+on:
+  push:
+    branches:
+      - feat/headunit-audio-ui-0.5.0
+    paths:
+      - .github/workflows/fix-android-settings-import.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/headunit-audio-ui-0.5.0
+          fetch-depth: 0
+
+      - name: Alias Android Settings class
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('app/src/main/java/com/autovideo/app/AutoVideoApp.kt')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('import android.provider.Settings\n', 'import android.provider.Settings as AndroidSettings\n')
+          text = text.replace('Settings.ACTION_APPLICATION_DETAILS_SETTINGS', 'AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS')
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Commit fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/autovideo/app/AutoVideoApp.kt
+          git commit -m "fix: alias Android Settings import"
+          git push origin HEAD:feat/headunit-audio-ui-0.5.0
