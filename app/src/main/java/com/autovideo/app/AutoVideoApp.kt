@@ -342,7 +342,7 @@ private fun SourcesScreen(
 
     fun openPermissions() {
         val intent = Intent(
-            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS,
             Uri.parse("package:${context.packageName}"),
         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         settingsLauncher.launch(intent)
