@@ -6,6 +6,7 @@ data class RemovableSource(
     val uriString: String,
     val name: String,
     val connected: Boolean,
+    val isRemovable: Boolean = true,
 )
 
 data class MediaFile(
@@ -37,8 +38,12 @@ data class LibraryUiState(
     val loading: Boolean = false,
     val sources: List<RemovableSource> = emptyList(),
     val folders: List<MediaFolder> = emptyList(),
+    val internalVideoAccess: Boolean = false,
+    val internalAudioAccess: Boolean = false,
     val error: String? = null,
 ) {
+    val internalStorageAccessible: Boolean get() = internalVideoAccess || internalAudioAccess
+    val internalStorageFullAccess: Boolean get() = internalVideoAccess && internalAudioAccess
     val videoFolders: List<MediaFolder> get() = folders.filter(MediaFolder::containsVideo)
     val videoFiles: List<MediaFile> get() = folders.flatMap(MediaFolder::files).filter(MediaFile::isVideo)
     val audioFiles: List<MediaFile> get() = folders.flatMap(MediaFolder::files).filter(MediaFile::isAudio)
