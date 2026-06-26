@@ -6,21 +6,27 @@ import android.net.Uri
 class StorageSources(context: Context) {
     private val prefs = context.getSharedPreferences("selected_media_sources", Context.MODE_PRIVATE)
 
-    fun all(): List<Uri> = prefs.getStringSet("uris", emptySet())
-        .orEmpty()
-        .toList()
-        .sorted()
-        .map(Uri::parse)
+    fun selected(): Uri? = prefs.getString(KEY_SELECTED_URI, null)?.let(Uri::parse)
 
-    fun add(uri: Uri) {
-        val values = prefs.getStringSet("uris", emptySet()).orEmpty().toMutableSet()
-        values.add(uri.toString())
-        prefs.edit().putStringSet("uris", values).apply()
+    fun all(): List<Uri> = selected()?.let(::listOf).orEmpty()
+
+    fun select(uri: Uri) {
+        prefs.edit()
+            .putString(KEY_SELECTED_URI, uri.toString())
+            .remove(LEGACY_URIS)
+            .apply()
     }
 
+    fun add(uri: Uri) = select(uri)
+
     fun remove(uriString: String) {
-        val values = prefs.getStringSet("uris", emptySet()).orEmpty().toMutableSet()
-        values.remove(uriString)
-        prefs.edit().putStringSet("uris", values).apply()
+        if (selected()?.toString() == uriString) {
+            prefs.edit().remove(KEY_SELECTED_URI).remove(LEGACY_URIS).apply()
+        }
+    }
+
+    private companion object {
+        const val KEY_SELECTED_URI = "selected_uri"
+        const val LEGACY_URIS = "uris"
     }
 }
