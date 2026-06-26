@@ -17,6 +17,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 class MainActivity : ComponentActivity() {
     private val viewModel: MainViewModel by viewModels()
     private var allFilesPromptShown = false
+    private var waitingForAllFilesSettings = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,7 +70,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        viewModel.refresh()
+        if (waitingForAllFilesSettings) {
+            waitingForAllFilesSettings = false
+            viewModel.refresh()
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -82,10 +86,11 @@ class MainActivity : ComponentActivity() {
         if (FullStorageAccess.isGranted(this)) return
         if (allFilesPromptShown) return
 
+        val intent = FullStorageAccess.settingsIntent(this) ?: return
         allFilesPromptShown = true
-        FullStorageAccess.settingsIntent(this)?.let { intent ->
-            runCatching { startActivity(intent) }
-        }
+        waitingForAllFilesSettings = true
+        runCatching { startActivity(intent) }
+            .onFailure { waitingForAllFilesSettings = false }
     }
 
     private fun enableImmersiveMode() {
