@@ -1,5 +1,11 @@
 package com.autovideo.app
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.os.SystemClock
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,11 +37,11 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -65,23 +71,57 @@ fun AutoVideoApp(
     onRemoveSource: (String) -> Unit,
 ) {
     val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
     val playbackStore = remember { PlaybackStore(context.applicationContext) }
     var section by remember { mutableStateOf(AppSection.HOME) }
     var selectedFolder by remember { mutableStateOf<MediaFolder?>(null) }
     var playingFile by remember { mutableStateOf<MediaFile?>(null) }
+    var playingQueue by remember { mutableStateOf<List<MediaFile>>(emptyList()) }
+    var lastExitBackMs by remember { mutableLongStateOf(0L) }
+
+    fun startPlayback(file: MediaFile, queue: List<MediaFile>) {
+        val normalized = queue.distinctBy(MediaFile::uriString)
+        playingQueue = if (normalized.any { it.uriString == file.uriString }) normalized else listOf(file)
+        playingFile = file
+    }
+
+    BackHandler(enabled = true) {
+        when {
+            playingFile != null -> playingFile = null
+            selectedFolder != null -> selectedFolder = null
+            section != AppSection.HOME -> section = AppSection.HOME
+            else -> {
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastExitBackMs <= 2_000L) {
+                    activity?.finish()
+                } else {
+                    lastExitBackMs = now
+                    Toast.makeText(
+                        context,
+                        "Проведите назад ещё раз, чтобы закрыть приложение",
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            }
+        }
+    }
 
     Surface(color = AutoBackground, modifier = Modifier.fillMaxSize()) {
         when {
             playingFile != null -> PlayerScreen(
                 file = checkNotNull(playingFile),
+                queue = playingQueue,
                 playbackStore = playbackStore,
+                onSelectFile = { next -> playingFile = next },
                 onBack = { playingFile = null },
             )
 
-            selectedFolder != null -> FolderScreen(
+            selectedFolder != null -> FolderBrowserScreen(
                 folder = checkNotNull(selectedFolder),
                 onBack = { selectedFolder = null },
-                onPlay = { playingFile = it },
+                onPlay = { file ->
+                    startPlayback(file, checkNotNull(selectedFolder).files)
+                },
             )
 
             else -> Row(
@@ -107,15 +147,15 @@ fun AutoVideoApp(
                             onAddSource = onAddSource,
                             onRefresh = onRefresh,
                             onOpenFolder = { selectedFolder = it },
-                            onPlay = { playingFile = it },
+                            onPlay = { file ->
+                                startPlayback(file, state.folders.flatMap(MediaFolder::files))
+                            },
                         )
 
-                        AppSection.VIDEO -> MediaLibraryScreen(
-                            title = "Все видео",
-                            files = state.videoFiles,
+                        AppSection.VIDEO -> VideoFoldersScreen(
+                            folders = state.videoFolders,
                             loading = state.loading,
-                            emptyMessage = "Видео во внутренней памяти и на носителях не найдено",
-                            onPlay = { playingFile = it },
+                            onOpenFolder = { selectedFolder = it },
                         )
 
                         AppSection.AUDIO -> MediaLibraryScreen(
@@ -123,7 +163,7 @@ fun AutoVideoApp(
                             files = state.audioFiles,
                             loading = state.loading,
                             emptyMessage = "Аудиофайлы во внутренней памяти и на носителях не найдены",
-                            onPlay = { playingFile = it },
+                            onPlay = { file -> startPlayback(file, state.audioFiles) },
                         )
 
                         AppSection.SETTINGS -> SourcesScreen(
@@ -244,7 +284,7 @@ private fun SourcesScreen(
             EmptySourcesCard(onAddSource)
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(state.sources, key = { it.uriString }) { source ->
+                items(state.sources, key = RemovableSource::uriString) { source ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -253,12 +293,10 @@ private fun SourcesScreen(
                             .padding(18.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        val internal = source.uriString == INTERNAL_SOURCE_URI ||
+                            source.name.equals("Внутренняя память", ignoreCase = true)
                         Icon(
-                            imageVector = if (source.uriString == INTERNAL_SOURCE_URI) {
-                                Icons.Rounded.PhoneAndroid
-                            } else {
-                                Icons.Rounded.Usb
-                            },
+                            imageVector = if (internal) Icons.Rounded.PhoneAndroid else Icons.Rounded.Usb,
                             contentDescription = null,
                             tint = if (source.connected) AutoGreen else AutoMuted,
                             modifier = Modifier.size(32.dp),
@@ -272,7 +310,7 @@ private fun SourcesScreen(
                             )
                         }
                         Spacer(Modifier.weight(1f))
-                        if (source.uriString != INTERNAL_SOURCE_URI) {
+                        if (!internal && !source.uriString.startsWith("file:")) {
                             IconButton(onClick = { onRemoveSource(source.uriString) }) {
                                 Icon(
                                     Icons.Rounded.DeleteOutline,
@@ -315,4 +353,10 @@ private fun EmptySourcesCard(onAddSource: () -> Unit) {
             Text("Выбрать папку или носитель")
         }
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
