@@ -1,16 +1,19 @@
 package com.autovideo.app
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.res.AssetFileDescriptor
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,7 +24,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RectangleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,6 +55,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -71,6 +74,14 @@ import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
 import org.videolan.libvlc.util.VLCVideoLayout
 import kotlin.math.abs
+import kotlin.math.roundToInt
+
+private enum class PlayerDragMode {
+    NONE,
+    SEEK,
+    VOLUME,
+    BRIGHTNESS,
+}
 
 @Composable
 fun ReliablePlayerOverlay(
@@ -83,7 +94,9 @@ fun ReliablePlayerOverlay(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current.applicationContext
+    val hostContext = LocalContext.current
+    val context = hostContext.applicationContext
+    val activity = remember(hostContext) { hostContext.findPlayerActivity() }
     val audioManager = remember(context) {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
@@ -129,8 +142,13 @@ fun ReliablePlayerOverlay(
     var controlsVisible by remember(file.uriString) { mutableStateOf(true) }
     var scrubbing by remember(file.uriString) { mutableStateOf(false) }
     var resumeAfterSeek by remember(file.uriString) { mutableStateOf(false) }
+    var dragMode by remember(file.uriString) { mutableStateOf(PlayerDragMode.NONE) }
+    var dragStartX by remember(file.uriString) { mutableFloatStateOf(0f) }
+    var dragDistanceX by remember(file.uriString) { mutableFloatStateOf(0f) }
+    var dragDistanceY by remember(file.uriString) { mutableFloatStateOf(0f) }
     var dragStartMs by remember(file.uriString) { mutableLongStateOf(0L) }
-    var dragDistance by remember(file.uriString) { mutableFloatStateOf(0f) }
+    var volumeStart by remember(file.uriString) { mutableIntStateOf(0) }
+    var brightnessStart by remember(file.uriString) { mutableFloatStateOf(0.5f) }
     var message by remember(file.uriString) { mutableStateOf<String?>(null) }
     var error by remember(file.uriString) { mutableStateOf<String?>(null) }
 
@@ -179,6 +197,22 @@ fun ReliablePlayerOverlay(
         error = null
         message = "Включены встроенные программные кодеки"
         restartToken++
+    }
+
+    fun currentWindowBrightness(): Float {
+        val explicit = activity?.window?.attributes?.screenBrightness ?: -1f
+        if (explicit >= 0f) return explicit.coerceIn(0.05f, 1f)
+        val systemValue = runCatching {
+            Settings.System.getInt(hostContext.contentResolver, Settings.System.SCREEN_BRIGHTNESS)
+        }.getOrDefault(128)
+        return (systemValue / 255f).coerceIn(0.05f, 1f)
+    }
+
+    fun setWindowBrightness(value: Float) {
+        val target = value.coerceIn(0.05f, 1f)
+        activity?.window?.attributes = activity?.window?.attributes?.apply {
+            screenBrightness = target
+        }
     }
 
     val focusListener = remember(player) {
@@ -323,47 +357,90 @@ fun ReliablePlayerOverlay(
     val windowed = displayMode == PlayerDisplayMode.WINDOWED
     val shape: Shape = if (windowed) RoundedCornerShape(24.dp) else RectangleShape
     val showControls = windowed || controlsVisible || error != null
-    val smallButton = if (windowed) 42.dp else 68.dp
-    val smallIcon = if (windowed) 24.dp else 37.dp
-    val playButton = if (windowed) 50.dp else 82.dp
-    val playIcon = if (windowed) 30.dp else 47.dp
+    val smallButton = if (windowed) 42.dp else 78.dp
+    val smallIcon = if (windowed) 24.dp else 43.dp
+    val playButton = if (windowed) 50.dp else 96.dp
+    val playIcon = if (windowed) 30.dp else 56.dp
 
     Box(
         modifier = modifier
             .clip(shape)
             .background(Color.Black)
-            .pointerInput(player, durationMs) {
-                detectHorizontalDragGestures(
-                    onDragStart = {
+            .pointerInput(player, durationMs, displayMode) {
+                detectDragGestures(
+                    onDragStart = { offset: Offset ->
+                        dragMode = PlayerDragMode.NONE
+                        dragStartX = offset.x
+                        dragDistanceX = 0f
+                        dragDistanceY = 0f
                         dragStartMs = player.time.coerceAtLeast(0L)
                         pendingSeekMs = dragStartMs
-                        dragDistance = 0f
-                        resumeAfterSeek = player.isPlaying
-                        if (resumeAfterSeek) player.pause()
-                        scrubbing = true
+                        volumeStart = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                        brightnessStart = currentWindowBrightness()
                         controlsVisible = true
                     },
-                    onHorizontalDrag = { change, amount ->
+                    onDrag = { change, amount ->
                         change.consume()
-                        dragDistance += amount
-                        val total = duration()
-                        if (total > 0L && size.width > 0) {
-                            val delta = (dragDistance / size.width.toFloat() * total).toLong()
-                            val target = (dragStartMs + delta).coerceIn(0L, total)
-                            pendingSeekMs = target
-                            updateProgress(target, total)
-                            message = (if (delta >= 0L) "+" else "−") + formatVideoTime(abs(delta))
+                        dragDistanceX += amount.x
+                        dragDistanceY += amount.y
+
+                        if (dragMode == PlayerDragMode.NONE &&
+                            (abs(dragDistanceX) > 14f || abs(dragDistanceY) > 14f)
+                        ) {
+                            val vertical = abs(dragDistanceY) > abs(dragDistanceX) * 1.15f
+                            dragMode = when {
+                                !windowed && vertical && dragStartX <= size.width * 0.35f -> PlayerDragMode.VOLUME
+                                !windowed && vertical && dragStartX >= size.width * 0.65f -> PlayerDragMode.BRIGHTNESS
+                                else -> PlayerDragMode.SEEK
+                            }
+                            if (dragMode == PlayerDragMode.SEEK) {
+                                resumeAfterSeek = player.isPlaying
+                                if (resumeAfterSeek) player.pause()
+                                scrubbing = true
+                            }
+                        }
+
+                        when (dragMode) {
+                            PlayerDragMode.SEEK -> {
+                                val total = duration()
+                                if (total > 0L && size.width > 0) {
+                                    val delta = (dragDistanceX / size.width.toFloat() * total).toLong()
+                                    val target = (dragStartMs + delta).coerceIn(0L, total)
+                                    pendingSeekMs = target
+                                    updateProgress(target, total)
+                                    message = (if (delta >= 0L) "+" else "−") + formatVideoTime(abs(delta))
+                                }
+                            }
+                            PlayerDragMode.VOLUME -> {
+                                val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+                                val delta = (-dragDistanceY / size.height.toFloat() * maxVolume).roundToInt()
+                                val target = (volumeStart + delta).coerceIn(0, maxVolume)
+                                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
+                                message = "Громкость ${(target * 100f / maxVolume).roundToInt()}%"
+                            }
+                            PlayerDragMode.BRIGHTNESS -> {
+                                val target = (brightnessStart - dragDistanceY / size.height.toFloat()).coerceIn(0.05f, 1f)
+                                setWindowBrightness(target)
+                                message = "Яркость ${(target * 100f).roundToInt()}%"
+                            }
+                            PlayerDragMode.NONE -> Unit
                         }
                     },
                     onDragEnd = {
-                        seekTo(pendingSeekMs)
-                        scrubbing = false
-                        if (resumeAfterSeek) player.play()
+                        if (dragMode == PlayerDragMode.SEEK) {
+                            seekTo(pendingSeekMs)
+                            scrubbing = false
+                            if (resumeAfterSeek) player.play()
+                        }
+                        dragMode = PlayerDragMode.NONE
                     },
                     onDragCancel = {
-                        seekTo(dragStartMs)
-                        scrubbing = false
-                        if (resumeAfterSeek) player.play()
+                        if (dragMode == PlayerDragMode.SEEK) {
+                            seekTo(dragStartMs)
+                            scrubbing = false
+                            if (resumeAfterSeek) player.play()
+                        }
+                        dragMode = PlayerDragMode.NONE
                     },
                 )
             }
@@ -462,8 +539,8 @@ fun ReliablePlayerOverlay(
                             if (windowed) PlayerDisplayMode.FULLSCREEN else PlayerDisplayMode.WINDOWED
                         )
                     },
-                    size = if (windowed) 40.dp else 56.dp,
-                    iconSize = if (windowed) 24.dp else 31.dp,
+                    size = if (windowed) 40.dp else 62.dp,
+                    iconSize = if (windowed) 24.dp else 35.dp,
                     backgroundColor = Color(0xA31A1724),
                 )
                 Spacer(Modifier.width(if (windowed) 5.dp else 8.dp))
@@ -474,8 +551,8 @@ fun ReliablePlayerOverlay(
                         savePosition()
                         onClose()
                     },
-                    size = if (windowed) 40.dp else 56.dp,
-                    iconSize = if (windowed) 24.dp else 31.dp,
+                    size = if (windowed) 40.dp else 62.dp,
+                    iconSize = if (windowed) 24.dp else 35.dp,
                     backgroundColor = Color(0xB33A1721),
                 )
             }
@@ -517,7 +594,7 @@ fun ReliablePlayerOverlay(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xF4000000))))
-                    .padding(horizontal = if (windowed) 10.dp else 24.dp, vertical = if (windowed) 8.dp else 18.dp),
+                    .padding(horizontal = if (windowed) 10.dp else 20.dp, vertical = if (windowed) 8.dp else 16.dp),
             ) {
                 Slider(
                     value = sliderFraction.coerceIn(0f, 1f),
@@ -544,20 +621,11 @@ fun ReliablePlayerOverlay(
                         activeTrackColor = AutoPurple,
                         inactiveTrackColor = Color(0xFF4B4653),
                     ),
-                    modifier = Modifier.height(if (windowed) 26.dp else 38.dp),
+                    modifier = Modifier.height(if (windowed) 26.dp else 42.dp),
                 )
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    if (!windowed) {
-                        Text(
-                            "${formatVideoTime(positionMs)} / ${formatVideoTime(durationMs)}",
-                            color = Color.White,
-                            fontSize = 13.sp,
-                        )
-                        Spacer(Modifier.weight(1f))
-                    }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                     Row(
-                        modifier = if (windowed) Modifier.fillMaxWidth() else Modifier,
-                        horizontalArrangement = if (windowed) Arrangement.SpaceEvenly else Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(if (windowed) 5.dp else 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         HeadUnitIconButton(
@@ -606,6 +674,22 @@ fun ReliablePlayerOverlay(
                             backgroundColor = Color(0xB3181521),
                         )
                     }
+                    Spacer(Modifier.weight(1f))
+                    if (!windowed) {
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                "Слева: громкость · Справа: яркость",
+                                color = AutoMuted,
+                                fontSize = 11.sp,
+                            )
+                            Text(
+                                "${formatVideoTime(positionMs)} / ${formatVideoTime(durationMs)}",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -649,4 +733,10 @@ private fun formatVideoTime(valueMs: Long): String {
     } else {
         "%02d:%02d".format(minutes, seconds)
     }
+}
+
+private tailrec fun Context.findPlayerActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findPlayerActivity()
+    else -> null
 }
