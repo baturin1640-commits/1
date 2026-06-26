@@ -26,12 +26,12 @@ data class MediaFolder(
     val name: String,
     val sourceName: String,
     val sourceUriString: String,
+    val path: String,
+    val parentId: String?,
     val files: List<MediaFile>,
 ) {
-    val videoCount: Int get() = files.count(MediaFile::isVideo)
-    val audioCount: Int get() = files.size - videoCount
-    val containsVideo: Boolean get() = videoCount > 0
-    val containsAudio: Boolean get() = audioCount > 0
+    val directVideoCount: Int get() = files.count(MediaFile::isVideo)
+    val directAudioCount: Int get() = files.size - directVideoCount
 }
 
 data class LibraryUiState(
@@ -40,8 +40,34 @@ data class LibraryUiState(
     val folders: List<MediaFolder> = emptyList(),
     val error: String? = null,
 ) {
-    val videoFolders: List<MediaFolder> get() = folders.filter(MediaFolder::containsVideo)
-    val audioFolders: List<MediaFolder> get() = folders.filter(MediaFolder::containsAudio)
     val videoFiles: List<MediaFile> get() = folders.flatMap(MediaFolder::files).filter(MediaFile::isVideo)
     val audioFiles: List<MediaFile> get() = folders.flatMap(MediaFolder::files).filter(MediaFile::isAudio)
+
+    fun childrenOf(parentId: String?): List<MediaFolder> = folders
+        .filter { it.parentId == parentId }
+        .sortedBy { it.name.lowercase() }
+
+    fun descendantsOf(folderId: String): List<MediaFolder> {
+        val result = mutableListOf<MediaFolder>()
+        val queue = ArrayDeque(childrenOf(folderId))
+        while (queue.isNotEmpty()) {
+            val folder = queue.removeFirst()
+            result += folder
+            queue.addAll(childrenOf(folder.id))
+        }
+        return result
+    }
+
+    fun filesInTree(folder: MediaFolder): List<MediaFile> =
+        (listOf(folder) + descendantsOf(folder.id)).flatMap(MediaFolder::files)
+
+    fun videoCount(folder: MediaFolder): Int = filesInTree(folder).count(MediaFile::isVideo)
+
+    fun audioCount(folder: MediaFolder): Int = filesInTree(folder).count(MediaFile::isAudio)
+
+    val videoRootFolders: List<MediaFolder>
+        get() = childrenOf(null).filter { videoCount(it) > 0 }
+
+    val audioRootFolders: List<MediaFolder>
+        get() = childrenOf(null).filter { audioCount(it) > 0 }
 }
