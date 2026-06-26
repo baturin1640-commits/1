@@ -74,7 +74,7 @@ import org.videolan.libvlc.util.VLCVideoLayout
 import kotlin.math.abs
 
 @Composable
-fun StablePlayerOverlay(
+fun ReliablePlayerOverlay(
     file: MediaFile,
     queue: List<MediaFile>,
     playbackStore: PlaybackStore,
