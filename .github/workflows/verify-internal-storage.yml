@@ -1,0 +1,63 @@
+name: Verify Android 0.2.0
+
+on:
+  push:
+    branches:
+      - feat/internal-storage-and-new-icon
+    paths:
+      - .github/workflows/verify-internal-storage.yml
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/internal-storage-and-new-icon
+          fetch-depth: 0
+
+      - name: Synchronize one-time source update
+        run: |
+          sleep 15
+          git pull --rebase origin feat/internal-storage-and-new-icon
+          if ! grep -q "internalMediaScanner" app/src/main/java/com/autovideo/app/MainViewModel.kt; then
+            python3 tools/apply_internal_storage_update_v2.py
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app README.md
+            git commit -m "feat: scan internal Android storage and update icon"
+            git push origin HEAD:feat/internal-storage-and-new-icon
+          fi
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.13"
+
+      - name: Build debug APK
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoVideo-0.2.0-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
