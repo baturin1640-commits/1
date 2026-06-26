@@ -1,6 +1,7 @@
 package com.autovideo.app
 
 import android.content.Context
+import android.net.Uri
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,5 +42,5 @@ class PlaybackStore(context: Context) {
         mutableRevision.value += 1L
     }
 
-    private fun key(file: MediaFile): String = file.uriString.hashCode().toUInt().toString(16)
+    private fun key(file: MediaFile): String = Uri.encode(file.uriString)
 }
