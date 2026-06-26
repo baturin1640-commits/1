@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -43,6 +45,7 @@ fun VideoAppRoot(
     val activity = remember(context) { context.findHostActivity() }
     val playbackStore = remember { PlaybackStore(context.applicationContext) }
     val favoritesStore = remember { FavoritesStore(context.applicationContext) }
+    val playlistStore = remember { AudioPlaylistStore(context.applicationContext) }
     val favorites by favoritesStore.state.collectAsStateWithLifecycle()
     val sounds = remember { UiSoundPlayer(context.applicationContext) }
 
@@ -93,7 +96,11 @@ fun VideoAppRoot(
                     if (now - lastExitBackMs <= 2_000L) activity?.finish()
                     else {
                         lastExitBackMs = now
-                        Toast.makeText(context, "Проведите назад ещё раз, чтобы закрыть приложение", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            "Проведите назад ещё раз, чтобы закрыть приложение",
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     }
                 }
             }
@@ -129,13 +136,15 @@ fun VideoAppRoot(
                                 onToggleFolderFavorite = favoritesStore::toggle,
                                 onToggleFileFavorite = favoritesStore::toggle,
                             )
-                            destination == AppSection.HOME.name -> HomeScreen(
+                            destination == AppSection.HOME.name -> DashboardHomeScreen(
                                 state = state,
                                 favorites = favorites,
                                 onAddSource = onAddSource,
                                 onRefresh = onRefresh,
                                 onOpenFolder = { folderId = it.id },
-                                onPlay = { file -> play(file, if (file.isVideo) state.videoFiles else state.audioFiles) },
+                                onPlay = { file ->
+                                    play(file, if (file.isVideo) state.videoFiles else state.audioFiles)
+                                },
                                 onToggleFolderFavorite = favoritesStore::toggle,
                                 onToggleFileFavorite = favoritesStore::toggle,
                             )
@@ -160,10 +169,10 @@ fun VideoAppRoot(
                 }
             }
 
-            if (playingFile != null) {
+            if (playingFile != null && playingFile.isVideo) {
                 ReliablePlayerOverlay(
                     file = playingFile,
-                    queue = queue,
+                    queue = queue.filter(MediaFile::isVideo),
                     playbackStore = playbackStore,
                     displayMode = mode,
                     onDisplayModeChange = { modeName = it.name },
@@ -172,8 +181,39 @@ fun VideoAppRoot(
                     modifier = if (mode == PlayerDisplayMode.FULLSCREEN) {
                         Modifier.fillMaxSize().zIndex(20f)
                     } else {
-                        Modifier.align(Alignment.BottomEnd).padding(18.dp)
-                            .fillMaxHeight(0.45f).aspectRatio(16f / 9f).zIndex(20f)
+                        Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(18.dp)
+                            .fillMaxHeight(0.45f)
+                            .aspectRatio(16f / 9f)
+                            .zIndex(20f)
+                    },
+                )
+            }
+
+            if (playingFile != null && playingFile.isAudio) {
+                AudioPlayerOverlay(
+                    file = playingFile,
+                    queue = queue.filter(MediaFile::isAudio),
+                    allAudioFiles = state.audioFiles,
+                    playbackStore = playbackStore,
+                    playlistStore = playlistStore,
+                    displayMode = mode,
+                    onDisplayModeChange = { modeName = it.name },
+                    onSelectFile = { playingUri = it.uriString },
+                    onQueueChange = { files ->
+                        queueUris = files.distinctBy(MediaFile::uriString).map(MediaFile::uriString)
+                    },
+                    onClose = { playingUri = null },
+                    modifier = if (mode == PlayerDisplayMode.FULLSCREEN) {
+                        Modifier.fillMaxSize().zIndex(20f)
+                    } else {
+                        Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(18.dp)
+                            .fillMaxWidth(0.76f)
+                            .height(112.dp)
+                            .zIndex(20f)
                     },
                 )
             }
