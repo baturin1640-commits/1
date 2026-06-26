@@ -62,6 +62,12 @@ android {
     }
 }
 
+kotlin {
+    sourceSets.getByName("main").kotlin.exclude(
+        "com/autovideo/app/StablePlayerOverlay.kt"
+    )
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2026.06.00")
     val media3Version = "1.10.1"
