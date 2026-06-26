@@ -48,6 +48,12 @@ android {
         buildConfig = true
     }
 
+    sourceSets {
+        getByName("main") {
+            java.exclude("**/StablePlayerOverlay.kt")
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -60,10 +66,6 @@ android {
         checkReleaseBuilds = true
         warningsAsErrors = false
     }
-}
-
-kotlin {
-    sourceSets.getByName("main").kotlin.exclude("**/StablePlayerOverlay.kt")
 }
 
 dependencies {
