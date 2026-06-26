@@ -18,7 +18,7 @@ class FileSystemMediaScanner(private val context: Context) {
         "amr", "ac3", "eac3", "dts", "wma", "ape", "alac", "aiff", "aif"
     )
     private val skippedDirectoryNames = setOf(
-        "Android", ".thumbnails", "LOST.DIR", "System Volume Information", "$RECYCLE.BIN"
+        "Android", ".thumbnails", "LOST.DIR", "System Volume Information", "\$RECYCLE.BIN"
     )
 
     fun scan(): Pair<List<RemovableSource>, List<MediaFolder>> {
@@ -70,15 +70,13 @@ class FileSystemMediaScanner(private val context: Context) {
 
         @Suppress("DEPRECATION")
         val primary = Environment.getExternalStorageDirectory()
-        if (primary != null) {
-            val canonical = runCatching { primary.canonicalPath }.getOrDefault(primary.absolutePath)
-            roots.putIfAbsent(canonical, ScanRoot("Внутренняя память", primary))
-        }
+        val primaryCanonical = runCatching { primary.canonicalPath }.getOrDefault(primary.absolutePath)
+        roots.putIfAbsent(primaryCanonical, ScanRoot("Внутренняя память", primary))
 
         context.getExternalFilesDirs(null).filterNotNull().forEach { appDir ->
             deriveVolumeRoot(appDir)?.let { root ->
                 val canonical = runCatching { root.canonicalPath }.getOrDefault(root.absolutePath)
-                val name = if (canonical == runCatching { primary.canonicalPath }.getOrNull()) {
+                val name = if (canonical == primaryCanonical) {
                     "Внутренняя память"
                 } else {
                     "Съёмный носитель"
