@@ -1,12 +1,17 @@
 package com.autovideo.app
 
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Bitmap
+import android.media.AudioManager
 import android.net.Uri
 import android.net.http.SslError
 import android.os.Build
 import android.os.Message
+import android.provider.Settings
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -20,10 +25,12 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -35,7 +42,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +53,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.consume
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -52,6 +63,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -65,11 +78,17 @@ fun RutubeScreen(
     val webViewResult = remember(context) { runCatching { WebView(context) } }
     val webView = webViewResult.getOrNull()
     val container = remember(context) { FrameLayout(context) }
+    val activity = remember(context) { context.findRutubeActivity() }
+    val audioManager = remember(context) {
+        context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+    }
+
     var loading by remember { mutableStateOf(true) }
     var progress by remember { mutableIntStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
     var fullscreenView by remember { mutableStateOf<View?>(null) }
     var fullscreenCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
+    var gestureFeedback by remember { mutableStateOf<String?>(null) }
 
     fun leaveFullscreen() {
         fullscreenView?.let(container::removeView)
@@ -78,6 +97,13 @@ fun RutubeScreen(
         fullscreenCallback = null
         webView?.visibility = View.VISIBLE
         latestFullscreenChanged(false)
+    }
+
+    LaunchedEffect(gestureFeedback) {
+        if (gestureFeedback != null) {
+            delay(1_100L)
+            gestureFeedback = null
+        }
     }
 
     BackHandler {
@@ -128,19 +154,19 @@ fun RutubeScreen(
         }
 
         fun openInsideApp(target: Uri): Boolean {
-            val scheme = target.scheme?.lowercase()
-            return when (scheme) {
+            return when (target.scheme?.lowercase()) {
                 "https" -> {
                     webView.loadUrl(target.toString())
                     true
                 }
                 "http" -> {
-                    val secure = target.buildUpon().scheme("https").build()
-                    webView.loadUrl(secure.toString())
+                    webView.loadUrl(target.buildUpon().scheme("https").build().toString())
                     true
                 }
                 "intent" -> {
-                    val intent = runCatching { Intent.parseUri(target.toString(), Intent.URI_INTENT_SCHEME) }.getOrNull()
+                    val intent = runCatching {
+                        Intent.parseUri(target.toString(), Intent.URI_INTENT_SCHEME)
+                    }.getOrNull()
                     val fallback = intent?.getStringExtra("browser_fallback_url")
                     val fallbackUri = fallback?.let(Uri::parse)
                     if (fallbackUri?.scheme.equals("https", ignoreCase = true)) {
@@ -156,8 +182,7 @@ fun RutubeScreen(
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val target = request.url
-                val scheme = target.scheme?.lowercase()
-                return when (scheme) {
+                return when (target.scheme?.lowercase()) {
                     "https" -> false
                     "http" -> {
                         view.loadUrl(target.buildUpon().scheme("https").build().toString())
@@ -232,10 +257,11 @@ fun RutubeScreen(
                 child.webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(childView: WebView, request: WebResourceRequest): Boolean {
                         val target = request.url
-                        if (target.scheme.equals("https", ignoreCase = true)) {
-                            webView.loadUrl(target.toString())
-                        } else if (target.scheme.equals("http", ignoreCase = true)) {
-                            webView.loadUrl(target.buildUpon().scheme("https").build().toString())
+                        when {
+                            target.scheme.equals("https", ignoreCase = true) -> webView.loadUrl(target.toString())
+                            target.scheme.equals("http", ignoreCase = true) -> {
+                                webView.loadUrl(target.buildUpon().scheme("https").build().toString())
+                            }
                         }
                         childView.stopLoading()
                         childView.destroy()
@@ -244,10 +270,11 @@ fun RutubeScreen(
 
                     override fun onPageStarted(childView: WebView, url: String, favicon: Bitmap?) {
                         val target = runCatching { Uri.parse(url) }.getOrNull()
-                        if (target?.scheme.equals("https", ignoreCase = true)) {
-                            webView.loadUrl(url)
-                        } else if (target?.scheme.equals("http", ignoreCase = true)) {
-                            webView.loadUrl(target?.buildUpon()?.scheme("https")?.build().toString())
+                        when {
+                            target?.scheme.equals("https", ignoreCase = true) -> webView.loadUrl(url)
+                            target?.scheme.equals("http", ignoreCase = true) -> {
+                                webView.loadUrl(target!!.buildUpon().scheme("https").build().toString())
+                            }
                         }
                         childView.stopLoading()
                         childView.destroy()
@@ -349,6 +376,40 @@ fun RutubeScreen(
                     backgroundColor = Color(0x99000000),
                 )
             }
+        } else {
+            RutubeEdgeGestureZone(
+                isVolume = true,
+                audioManager = audioManager,
+                activity = activity,
+                onFeedback = { gestureFeedback = it },
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .fillMaxHeight()
+                    .fillMaxWidth(0.22f),
+            )
+            RutubeEdgeGestureZone(
+                isVolume = false,
+                audioManager = audioManager,
+                activity = activity,
+                onFeedback = { gestureFeedback = it },
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    .fillMaxWidth(0.22f),
+            )
+        }
+
+        gestureFeedback?.let { value ->
+            Text(
+                value,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .background(Color(0xE8070610), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 18.dp, vertical = 12.dp),
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+            )
         }
 
         if (loading && fullscreenView == null) {
@@ -372,6 +433,63 @@ fun RutubeScreen(
 }
 
 @Composable
+private fun RutubeEdgeGestureZone(
+    isVolume: Boolean,
+    audioManager: AudioManager,
+    activity: Activity?,
+    onFeedback: (String) -> Unit,
+    modifier: Modifier,
+) {
+    val context = LocalContext.current
+    var accumulated by remember { mutableFloatStateOf(0f) }
+    var startVolume by remember { mutableIntStateOf(0) }
+    var startBrightness by remember { mutableFloatStateOf(0.5f) }
+
+    Box(
+        modifier = modifier.pointerInput(isVolume, audioManager, activity) {
+            detectVerticalDragGestures(
+                onDragStart = {
+                    accumulated = 0f
+                    startVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                    startBrightness = currentRutubeBrightness(context, activity)
+                },
+                onVerticalDrag = { change, dragAmount ->
+                    change.consume()
+                    accumulated += dragAmount
+                    if (isVolume) {
+                        val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+                        val delta = (-accumulated / size.height.toFloat() * maxVolume).roundToInt()
+                        val target = (startVolume + delta).coerceIn(0, maxVolume)
+                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
+                        onFeedback("Громкость ${(target * 100f / maxVolume).roundToInt()}%")
+                    } else {
+                        val target = (startBrightness - accumulated / size.height.toFloat()).coerceIn(0.05f, 1f)
+                        setRutubeBrightness(activity, target)
+                        onFeedback("Яркость ${(target * 100f).roundToInt()}%")
+                    }
+                },
+            )
+        },
+    )
+}
+
+private fun currentRutubeBrightness(context: Context, activity: Activity?): Float {
+    val explicit = activity?.window?.attributes?.screenBrightness ?: -1f
+    if (explicit >= 0f) return explicit.coerceIn(0.05f, 1f)
+    val systemValue = runCatching {
+        Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS)
+    }.getOrDefault(128)
+    return (systemValue / 255f).coerceIn(0.05f, 1f)
+}
+
+private fun setRutubeBrightness(activity: Activity?, value: Float) {
+    val window = activity?.window ?: return
+    val attributes = window.attributes
+    attributes.screenBrightness = value.coerceIn(0.05f, 1f)
+    window.attributes = attributes
+}
+
+@Composable
 private fun WebViewUnavailableScreen(message: String, onBack: () -> Unit) {
     Column(
         modifier = Modifier
@@ -386,4 +504,10 @@ private fun WebViewUnavailableScreen(message: String, onBack: () -> Unit) {
         Text("Обновите системный компонент Android System WebView", color = AutoMuted, fontSize = 14.sp)
         Spacer(Modifier.weight(1f))
     }
+}
+
+private tailrec fun Context.findRutubeActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findRutubeActivity()
+    else -> null
 }
