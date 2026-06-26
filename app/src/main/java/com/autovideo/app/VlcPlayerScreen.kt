@@ -30,6 +30,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -55,6 +56,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import org.videolan.libvlc.LibVLC
@@ -72,10 +76,10 @@ fun VlcPlayerScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val audioManager = remember {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
-
     val libVlc = remember(file.uriString) {
         LibVLC(
             context,
@@ -83,7 +87,9 @@ fun VlcPlayerScreen(
                 "--audio-time-stretch",
                 "--avcodec-hw=any",
                 "--no-spdif",
-                "--verbose=1",
+                "--file-caching=1200",
+                "--drop-late-frames",
+                "--skip-frames",
             ),
         )
     }
@@ -97,6 +103,8 @@ fun VlcPlayerScreen(
     val previousFile = playlist.getOrNull(currentIndex - 1)
     val nextFile = playlist.getOrNull(currentIndex + 1)
 
+    var videoLayout by remember(file.uriString) { mutableStateOf<VLCVideoLayout?>(null) }
+    var playbackStarted by remember(file.uriString) { mutableStateOf(false) }
     var positionMs by remember(file.uriString) { mutableLongStateOf(0L) }
     var durationMs by remember(file.uriString) { mutableLongStateOf(0L) }
     var isPlaying by remember(file.uriString) { mutableStateOf(false) }
@@ -108,15 +116,12 @@ fun VlcPlayerScreen(
     var dragStartPosition by remember(file.uriString) { mutableLongStateOf(0L) }
     var dragDistancePx by remember(file.uriString) { mutableFloatStateOf(0f) }
     var resumeAfterSeek by remember(file.uriString) { mutableStateOf(false) }
+    var audioTrackConfigured by remember(file.uriString) { mutableStateOf(false) }
 
     fun currentDuration(): Long = player.length.coerceAtLeast(0L)
 
     fun saveProgress() {
-        playbackStore.save(
-            file,
-            player.time.coerceAtLeast(0L),
-            currentDuration(),
-        )
+        playbackStore.save(file, player.time.coerceAtLeast(0L), currentDuration())
     }
 
     fun seekTo(targetMs: Long, message: String? = null) {
@@ -131,8 +136,8 @@ fun VlcPlayerScreen(
 
     fun seekBy(deltaMs: Long) {
         seekTo(
-            targetMs = player.time.coerceAtLeast(0L) + deltaMs,
-            message = if (deltaMs < 0L) "−10 сек" else "+10 сек",
+            player.time.coerceAtLeast(0L) + deltaMs,
+            if (deltaMs < 0L) "−10 сек" else "+10 сек",
         )
     }
 
@@ -157,61 +162,21 @@ fun VlcPlayerScreen(
         }
     }
 
-    LaunchedEffect(player, file.uriString) {
-        runCatching {
-            audioManager.requestAudioFocus(
-                audioFocusListener,
-                AudioManager.STREAM_MUSIC,
-                AudioManager.AUDIOFOCUS_GAIN,
-            )
-        }
-
-        player.setAudioOutput("android_audiotrack")
-        player.setAudioDigitalOutputEnabled(false)
-        player.setAudioOutputDevice("stereo")
-        player.setVolume(100)
-
-        val media = Media(libVlc, file.uri).apply {
-            setHWDecoderEnabled(true, false)
-            addOption(":no-spdif")
-            addOption(":audio-track=-1")
-        }
-        player.media = media
-        media.release()
-        player.play()
-
-        val resumeAt = playbackStore.position(file)
-        if (resumeAt > 0L) {
-            repeat(30) {
-                delay(100L)
-                if (player.length > 0L) {
-                    player.time = resumeAt
-                    return@repeat
-                }
-            }
-        }
-
-        while (isActive) {
-            positionMs = player.time.coerceAtLeast(0L)
-            durationMs = currentDuration()
-            isPlaying = player.isPlaying
-            if (!scrubbing) sliderValue = positionMs.toFloat()
-            delay(200L)
-        }
-    }
-
     DisposableEffect(player, nextFile?.uriString) {
         player.setEventListener { event ->
             when (event.type) {
                 MediaPlayer.Event.Playing -> {
                     isPlaying = true
                     player.setVolume(100)
-                    player.setAudioDigitalOutputEnabled(false)
-                    player.setAudioOutputDevice("stereo")
-                    if (player.audioTrack == -1) {
-                        player.audioTracks
-                            ?.firstOrNull { it.id >= 0 }
-                            ?.let { player.setAudioTrack(it.id) }
+                    if (!audioTrackConfigured) {
+                        player.setAudioDigitalOutputEnabled(false)
+                        player.setAudioOutputDevice("stereo")
+                        if (player.audioTrack == -1) {
+                            player.audioTracks
+                                ?.firstOrNull { it.id >= 0 }
+                                ?.let { player.setAudioTrack(it.id) }
+                        }
+                        audioTrackConfigured = true
                     }
                 }
 
@@ -240,6 +205,72 @@ fun VlcPlayerScreen(
             runCatching { libVlc.release() }
             runCatching { audioManager.abandonAudioFocus(audioFocusListener) }
         }
+    }
+
+    LaunchedEffect(player, file.uriString, videoLayout) {
+        if (playbackStarted) return@LaunchedEffect
+        if (file.isVideo && videoLayout == null) return@LaunchedEffect
+        playbackStarted = true
+
+        runCatching {
+            audioManager.requestAudioFocus(
+                audioFocusListener,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN,
+            )
+        }
+        player.setAudioOutput("android_audiotrack")
+        player.setAudioDigitalOutputEnabled(false)
+        player.setAudioOutputDevice("stereo")
+        player.setVolume(100)
+
+        val media = Media(libVlc, file.uri).apply {
+            setHWDecoderEnabled(true, false)
+            addOption(":no-spdif")
+            addOption(":audio-track=-1")
+            addOption(":file-caching=1200")
+        }
+        player.media = media
+        media.release()
+        player.play()
+
+        val resumeAt = playbackStore.position(file)
+        if (resumeAt > 0L) {
+            for (attempt in 0 until 30) {
+                delay(100L)
+                if (player.length > 0L) {
+                    player.time = resumeAt
+                    positionMs = resumeAt
+                    sliderValue = resumeAt.toFloat()
+                    break
+                }
+            }
+        }
+
+        while (isActive) {
+            positionMs = player.time.coerceAtLeast(0L)
+            durationMs = currentDuration()
+            isPlaying = player.isPlaying
+            if (!scrubbing) sliderValue = positionMs.toFloat()
+            delay(250L)
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, player, videoLayout) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME && file.isVideo) {
+                videoLayout?.let { layout ->
+                    runCatching {
+                        player.detachViews()
+                        player.attachViews(layout, null, true, false)
+                        layout.requestLayout()
+                        layout.invalidate()
+                    }
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     LaunchedEffect(feedback, scrubbing) {
@@ -312,10 +343,14 @@ fun VlcPlayerScreen(
         if (file.isVideo) {
             AndroidView(
                 factory = { viewContext ->
-                    VLCVideoLayout(viewContext).apply {
-                        keepScreenOn = true
-                        player.attachViews(this, null, true, false)
+                    VLCVideoLayout(viewContext).also { layout ->
+                        layout.keepScreenOn = true
+                        videoLayout = layout
+                        player.attachViews(layout, null, true, false)
                     }
+                },
+                update = { layout ->
+                    videoLayout = layout
                 },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -328,12 +363,10 @@ fun VlcPlayerScreen(
                     modifier = Modifier
                         .size(180.dp)
                         .clip(CircleShape)
-                        .background(
-                            Brush.linearGradient(listOf(Color(0xFF552184), Color(0xFF172B55)))
-                        ),
+                        .background(Brush.linearGradient(listOf(Color(0xFF552184), Color(0xFF172B55)))),
                     contentAlignment = Alignment.Center,
                 ) {
-                    androidx.compose.material3.Icon(
+                    Icon(
                         Icons.Rounded.Audiotrack,
                         contentDescription = null,
                         tint = Color.White,
@@ -341,7 +374,7 @@ fun VlcPlayerScreen(
                     )
                 }
                 Spacer(Modifier.height(24.dp))
-                Text(file.name, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
+                Text(file.name, color = AutoText, fontSize = 24.sp, fontWeight = FontWeight.SemiBold)
                 Text(file.folderName, color = AutoMuted, fontSize = 16.sp)
             }
         }
@@ -394,6 +427,7 @@ fun VlcPlayerScreen(
                     )
                     Text(file.sourceName, color = Color(0xFFB6B0C3), fontSize = 13.sp)
                 }
+                AppClock(compact = true)
             }
         }
 
@@ -414,9 +448,9 @@ fun VlcPlayerScreen(
                     Spacer(Modifier.height(8.dp))
                 }
 
-                val sliderMaximum = durationMs.coerceAtLeast(1L).toFloat()
+                val maximum = durationMs.coerceAtLeast(1L).toFloat()
                 Slider(
-                    value = sliderValue.coerceIn(0f, sliderMaximum),
+                    value = sliderValue.coerceIn(0f, maximum),
                     onValueChange = {
                         if (!scrubbing) {
                             resumeAfterSeek = player.isPlaying
@@ -431,7 +465,7 @@ fun VlcPlayerScreen(
                         scrubbing = false
                         if (resumeAfterSeek) player.play()
                     },
-                    valueRange = 0f..sliderMaximum,
+                    valueRange = 0f..maximum,
                     colors = SliderDefaults.colors(
                         thumbColor = AutoPurple,
                         activeTrackColor = AutoPurple,
