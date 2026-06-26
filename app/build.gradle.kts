@@ -12,8 +12,12 @@ android {
         applicationId = "com.autovideo.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 6
-        versionName = "0.5.0"
+        versionCode = 7
+        versionName = "0.6.0"
+
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
 
         vectorDrawables {
             useSupportLibrary = true
@@ -69,16 +73,8 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
-    debugImplementation("androidx.compose.ui:ui-tooling")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
-    val media3Version = "1.10.1"
-    implementation("androidx.media3:media3-exoplayer:$media3Version")
-    implementation("androidx.media3:media3-ui:$media3Version")
-    implementation("androidx.media3:media3-common:$media3Version")
-
-    // VLC includes software decoders for AC3/E-AC3/DTS and other tracks
-    // that are commonly absent on Android head units.
     implementation("org.videolan.android:libvlc-all:3.7.0")
 }
