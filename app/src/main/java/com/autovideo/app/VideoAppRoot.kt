@@ -93,11 +93,7 @@ fun VideoAppRoot(
                     if (now - lastExitBackMs <= 2_000L) activity?.finish()
                     else {
                         lastExitBackMs = now
-                        Toast.makeText(
-                            context,
-                            "Проведите назад ещё раз, чтобы закрыть приложение",
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        Toast.makeText(context, "Проведите назад ещё раз, чтобы закрыть приложение", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
@@ -120,19 +116,20 @@ fun VideoAppRoot(
                         targetState = folderId ?: section.name,
                         animationSpec = tween(230),
                         label = "rootContent",
-                    ) { _ ->
+                    ) { destination ->
+                        val visibleFolder = state.folders.firstOrNull { it.id == destination }
                         when {
-                            folder != null -> FolderBrowserScreen(
+                            visibleFolder != null -> FolderBrowserScreen(
                                 state = state,
-                                folder = folder,
+                                folder = visibleFolder,
                                 favorites = favorites,
                                 onOpenFolder = { folderId = it.id },
-                                onBack = ::backFolder,
-                                onPlay = { file -> play(file, state.filesInTree(folder)) },
+                                onBack = { folderId = visibleFolder.parentId },
+                                onPlay = { file -> play(file, state.filesInTree(visibleFolder)) },
                                 onToggleFolderFavorite = favoritesStore::toggle,
                                 onToggleFileFavorite = favoritesStore::toggle,
                             )
-                            section == AppSection.HOME -> HomeScreen(
+                            destination == AppSection.HOME.name -> HomeScreen(
                                 state = state,
                                 favorites = favorites,
                                 onAddSource = onAddSource,
@@ -142,7 +139,7 @@ fun VideoAppRoot(
                                 onToggleFolderFavorite = favoritesStore::toggle,
                                 onToggleFileFavorite = favoritesStore::toggle,
                             )
-                            section == AppSection.VIDEO -> VideoExperienceScreen(
+                            destination == AppSection.VIDEO.name -> VideoExperienceScreen(
                                 state = state,
                                 playbackStore = playbackStore,
                                 favorites = favorites,
@@ -151,7 +148,7 @@ fun VideoAppRoot(
                                 onToggleFolderFavorite = favoritesStore::toggle,
                                 onToggleFileFavorite = favoritesStore::toggle,
                             )
-                            section == AppSection.AUDIO -> AudioFoldersScreen(
+                            destination == AppSection.AUDIO.name -> AudioFoldersScreen(
                                 state = state,
                                 favorites = favorites,
                                 onOpenFolder = { folderId = it.id },
