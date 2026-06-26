@@ -23,6 +23,7 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.Usb
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.Button
@@ -30,7 +31,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -60,6 +60,7 @@ enum class AppSection {
 fun AutoVideoApp(
     state: LibraryUiState,
     onAddSource: () -> Unit,
+    onRequestInternalAccess: () -> Unit,
     onRefresh: () -> Unit,
     onRemoveSource: (String) -> Unit,
 ) {
@@ -104,6 +105,7 @@ fun AutoVideoApp(
                             state = state,
                             playbackStore = playbackStore,
                             onAddSource = onAddSource,
+                            onRequestInternalAccess = onRequestInternalAccess,
                             onRefresh = onRefresh,
                             onOpenFolder = { selectedFolder = it },
                             onPlay = { playingFile = it },
@@ -113,7 +115,7 @@ fun AutoVideoApp(
                             title = "Все видео",
                             files = state.videoFiles,
                             loading = state.loading,
-                            emptyMessage = "Видео на подключённых носителях не найдено",
+                            emptyMessage = "Видео во внутренней памяти и на носителях не найдено",
                             onPlay = { playingFile = it },
                         )
 
@@ -121,13 +123,14 @@ fun AutoVideoApp(
                             title = "Аудио",
                             files = state.audioFiles,
                             loading = state.loading,
-                            emptyMessage = "Аудиофайлы на подключённых носителях не найдены",
+                            emptyMessage = "Аудиофайлы во внутренней памяти и на носителях не найдены",
                             onPlay = { playingFile = it },
                         )
 
                         AppSection.SETTINGS -> SourcesScreen(
                             state = state,
                             onAddSource = onAddSource,
+                            onRequestInternalAccess = onRequestInternalAccess,
                             onRefresh = onRefresh,
                             onRemoveSource = onRemoveSource,
                         )
@@ -172,7 +175,7 @@ private fun SideNavigation(
                     .background(if (connected) AutoGreen else Color(0xFF6B6478))
             )
             Spacer(Modifier.width(5.dp))
-            Text(if (connected) "USB" else "Нет", color = AutoMuted, fontSize = 10.sp)
+            Text(if (connected) "Медиа" else "Нет", color = AutoMuted, fontSize = 10.sp)
         }
     }
 }
@@ -209,6 +212,7 @@ private fun NavigationItem(
 private fun SourcesScreen(
     state: LibraryUiState,
     onAddSource: () -> Unit,
+    onRequestInternalAccess: () -> Unit,
     onRefresh: () -> Unit,
     onRemoveSource: (String) -> Unit,
 ) {
@@ -218,8 +222,8 @@ private fun SourcesScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column {
-                Text("Носители", fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                Text("Подключайте флешки и внешние диски", color = AutoMuted)
+                Text("Источники медиа", fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                Text("Внутренняя память, флешки, SD-карты и внешние диски", color = AutoMuted)
             }
             Spacer(Modifier.weight(1f))
             IconButton(onClick = onRefresh) {
@@ -239,11 +243,10 @@ private fun SourcesScreen(
         Spacer(Modifier.height(28.dp))
         if (state.loading) {
             CircularProgressIndicator(color = AutoPurple)
-        } else if (state.sources.isEmpty()) {
-            EmptySourcesCard(onAddSource)
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(state.sources, key = { it.uriString }) { source ->
+                    val isInternal = !source.isRemovable
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -253,7 +256,7 @@ private fun SourcesScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
-                            Icons.Rounded.Usb,
+                            imageVector = if (isInternal) Icons.Rounded.Storage else Icons.Rounded.Usb,
                             contentDescription = null,
                             tint = if (source.connected) AutoGreen else AutoMuted,
                             modifier = Modifier.size(32.dp),
@@ -262,38 +265,32 @@ private fun SourcesScreen(
                         Column {
                             Text(source.name, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
                             Text(
-                                if (source.connected) "Подключён и доступен" else "Носитель сейчас недоступен",
+                                text = when {
+                                    isInternal && state.internalStorageFullAccess -> "Видео и аудио доступны"
+                                    isInternal && state.internalStorageAccessible -> "Предоставлен частичный доступ"
+                                    isInternal -> "Нужно разрешить доступ к медиафайлам"
+                                    source.connected -> "Подключён и доступен"
+                                    else -> "Носитель сейчас недоступен"
+                                },
                                 color = if (source.connected) AutoGreen else AutoMuted,
                             )
                         }
                         Spacer(Modifier.weight(1f))
-                        IconButton(onClick = { onRemoveSource(source.uriString) }) {
-                            Icon(Icons.Rounded.DeleteOutline, contentDescription = "Удалить", tint = AutoMuted)
+                        if (isInternal && !state.internalStorageFullAccess) {
+                            Button(
+                                onClick = onRequestInternalAccess,
+                                colors = ButtonDefaults.buttonColors(containerColor = AutoPurple),
+                            ) {
+                                Text("Дать доступ")
+                            }
+                        } else if (source.isRemovable) {
+                            IconButton(onClick = { onRemoveSource(source.uriString) }) {
+                                Icon(Icons.Rounded.DeleteOutline, contentDescription = "Удалить", tint = AutoMuted)
+                            }
                         }
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun EmptySourcesCard(onAddSource: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(22.dp))
-            .background(AutoSurfaceHigh)
-            .padding(32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Icon(Icons.Rounded.Usb, contentDescription = null, tint = AutoPurple, modifier = Modifier.size(48.dp))
-        Spacer(Modifier.height(14.dp))
-        Text("Носитель ещё не выбран", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-        Text("Выберите корневую папку флешки или внешнего диска", color = AutoMuted)
-        Spacer(Modifier.height(18.dp))
-        Button(onClick = onAddSource, colors = ButtonDefaults.buttonColors(containerColor = AutoPurple)) {
-            Text("Выбрать носитель")
         }
     }
 }
