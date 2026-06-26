@@ -1,0 +1,1 @@
+Auto Video 0.3.0 fixes storage discovery by scanning every MediaStore volume and, when the user grants Android's special all-files access, directly scanning internal and removable storage roots. The previous 0.2.0 scanner queried only the primary MediaStore volume and therefore missed unindexed files and removable volumes.
