@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,7 +20,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val mediaStoreScanner = InternalMediaScanner(application)
     private val fileSystemScanner = FileSystemMediaScanner(application)
     private val mutableState = MutableStateFlow(LibraryUiState())
+
     private var currentScan: Job? = null
+    private var refreshRequestedWhileScanning = false
 
     val uiState: StateFlow<LibraryUiState> = mutableState.asStateFlow()
 
@@ -39,45 +42,100 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun refresh() {
-        currentScan?.cancel()
+        if (currentScan?.isActive == true) {
+            refreshRequestedWhileScanning = true
+            return
+        }
+
         currentScan = viewModelScope.launch {
-            mutableState.value = mutableState.value.copy(loading = true, error = null)
-            try {
-                val result = withContext(Dispatchers.IO) {
-                    val selectedFolders = selectedFolderScanner.scan(sourceStore.all())
-                    val automatic = if (FullStorageAccess.isGranted(getApplication())) {
-                        fileSystemScanner.scan()
-                    } else {
-                        mediaStoreScanner.scan(MediaPermissions.access(getApplication()))
-                    }
+            do {
+                refreshRequestedWhileScanning = false
+                performScan()
+            } while (refreshRequestedWhileScanning)
+        }
+    }
 
-                    val sources = (automatic.first + selectedFolders.first)
-                        .distinctBy(RemovableSource::uriString)
-                        .sortedBy { it.name.lowercase(Locale.getDefault()) }
+    private suspend fun performScan() {
+        mutableState.value = mutableState.value.copy(loading = true, error = null)
 
-                    val folders = deduplicateFolders(automatic.second + selectedFolders.second)
-                        .sortedWith(
-                            compareBy<MediaFolder> {
-                                it.sourceName.lowercase(Locale.getDefault())
-                            }.thenBy {
-                                it.name.lowercase(Locale.getDefault())
-                            },
-                        )
-                    sources to folders
+        try {
+            val result = withContext(Dispatchers.IO) {
+                val selectedFoldersResult = runCatching {
+                    selectedFolderScanner.scan(sourceStore.all())
+                }
+                val mediaStoreResult = runCatching {
+                    mediaStoreScanner.scan(MediaPermissions.access(getApplication()))
+                }
+                val fileSystemResult = runCatching {
+                    fileSystemScanner.scan()
                 }
 
-                mutableState.value = LibraryUiState(
-                    loading = false,
-                    sources = result.first,
-                    folders = result.second,
+                val selectedFolders = selectedFoldersResult.getOrDefault(emptyScanResult())
+                val mediaStore = mediaStoreResult.getOrDefault(emptyScanResult())
+                val fileSystem = fileSystemResult.getOrDefault(emptyScanResult())
+
+                val sources = deduplicateSources(
+                    fileSystem.first + mediaStore.first + selectedFolders.first,
+                ).sortedBy { it.name.lowercase(Locale.getDefault()) }
+
+                val folders = deduplicateFolders(
+                    fileSystem.second + mediaStore.second + selectedFolders.second,
+                ).sortedWith(
+                    compareBy<MediaFolder> {
+                        it.sourceName.lowercase(Locale.getDefault())
+                    }.thenBy {
+                        it.name.lowercase(Locale.getDefault())
+                    },
                 )
-            } catch (throwable: Throwable) {
-                mutableState.value = mutableState.value.copy(
-                    loading = false,
-                    error = throwable.message ?: "Не удалось прочитать медиатеку",
+
+                val errors = listOfNotNull(
+                    selectedFoldersResult.exceptionOrNull(),
+                    mediaStoreResult.exceptionOrNull(),
+                    fileSystemResult.exceptionOrNull(),
+                )
+
+                ScanResult(
+                    sources = sources,
+                    folders = folders,
+                    error = if (sources.isEmpty() && folders.isEmpty() && errors.isNotEmpty()) {
+                        errors.first().message ?: "Не удалось прочитать медиатеку"
+                    } else {
+                        null
+                    },
                 )
             }
+
+            mutableState.value = LibraryUiState(
+                loading = false,
+                sources = result.sources,
+                folders = result.folders,
+                error = result.error,
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (throwable: Throwable) {
+            mutableState.value = mutableState.value.copy(
+                loading = false,
+                error = throwable.message ?: "Не удалось прочитать медиатеку",
+            )
         }
+    }
+
+    private fun deduplicateSources(sources: List<RemovableSource>): List<RemovableSource> {
+        val unique = linkedMapOf<String, RemovableSource>()
+        sources.forEach { source ->
+            val normalizedName = source.name.lowercase(Locale.getDefault())
+            val key = if (normalizedName == "внутренняя память") {
+                "internal-storage"
+            } else {
+                source.uriString
+            }
+            val existing = unique[key]
+            if (existing == null || (!existing.connected && source.connected)) {
+                unique[key] = source
+            }
+        }
+        return unique.values.toList()
     }
 
     private fun deduplicateFolders(folders: List<MediaFolder>): List<MediaFolder> {
@@ -91,4 +149,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         return unique.values.toList()
     }
+
+    private fun emptyScanResult(): Pair<List<RemovableSource>, List<MediaFolder>> =
+        emptyList<RemovableSource>() to emptyList()
+
+    private data class ScanResult(
+        val sources: List<RemovableSource>,
+        val folders: List<MediaFolder>,
+        val error: String?,
+    )
 }
