@@ -30,15 +30,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private object ThumbnailCache {
-    private val cacheSizeKb = 24 * 1024
-    private val cache = object : LruCache<String, Bitmap>(cacheSizeKb) {
+    private const val CACHE_SIZE_KB = 12 * 1024
+    private val cache = object : LruCache<String, Bitmap>(CACHE_SIZE_KB) {
         override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount / 1024
     }
 
     fun get(key: String): Bitmap? = cache.get(key)
 
     fun put(key: String, bitmap: Bitmap) {
-        cache.put(key, bitmap)
+        if (!bitmap.isRecycled) cache.put(key, bitmap)
     }
 }
 
@@ -80,7 +80,7 @@ fun VideoThumbnail(
                         retriever.getFrameAtTime(
                             frameTimeUs,
                             MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
-                        )
+                        )?.let(::scaleThumbnail)
                     }
                     frame?.also { ThumbnailCache.put(file.uriString, it) }
                 } finally {
@@ -102,46 +102,47 @@ fun VideoThumbnail(
         ),
         contentAlignment = Alignment.Center,
     ) {
-        if (bitmap != null) {
+        bitmap?.let { frame ->
             Image(
-                bitmap = checkNotNull(bitmap).asImageBitmap(),
-                contentDescription = file.name,
+                bitmap = frame.asImageBitmap(),
+                contentDescription = null,
                 modifier = Modifier.matchParentSize(),
                 contentScale = ContentScale.Crop,
             )
             Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(Color.Transparent, Color(0x66000000)),
-                        )
-                    ),
+                modifier = Modifier.matchParentSize().background(
+                    Brush.verticalGradient(listOf(Color.Transparent, Color(0x66000000)))
+                ),
             )
-        } else {
-            Icon(
-                imageVector = if (file.isVideo) Icons.Rounded.VideoFile else Icons.Rounded.Audiotrack,
-                contentDescription = null,
-                tint = if (file.isVideo) AutoPurple else AutoPink,
-                modifier = Modifier.size(42.dp),
-            )
-        }
+        } ?: Icon(
+            imageVector = if (file.isVideo) Icons.Rounded.VideoFile else Icons.Rounded.Audiotrack,
+            contentDescription = null,
+            tint = if (file.isVideo) AutoPurple else AutoPink,
+            modifier = Modifier.size(42.dp),
+        )
 
         if (showPlayButton) {
             Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xB805040A)),
+                modifier = Modifier.size(44.dp).clip(CircleShape).background(Color(0xB805040A)),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     Icons.Rounded.PlayArrow,
-                    contentDescription = "Воспроизвести",
+                    contentDescription = null,
                     tint = Color.White,
                     modifier = Modifier.size(28.dp),
                 )
             }
         }
     }
+}
+
+private fun scaleThumbnail(source: Bitmap): Bitmap {
+    if (source.width <= 640 && source.height <= 360) return source
+    val scale = minOf(640f / source.width.toFloat(), 360f / source.height.toFloat())
+    val width = (source.width * scale).toInt().coerceAtLeast(1)
+    val height = (source.height * scale).toInt().coerceAtLeast(1)
+    val scaled = Bitmap.createScaledBitmap(source, width, height, true)
+    if (scaled !== source) source.recycle()
+    return scaled
 }
