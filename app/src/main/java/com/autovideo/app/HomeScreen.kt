@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.Usb
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -33,7 +34,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -60,6 +60,7 @@ fun HomeScreen(
     state: LibraryUiState,
     playbackStore: PlaybackStore,
     onAddSource: () -> Unit,
+    onRequestInternalAccess: () -> Unit,
     onRefresh: () -> Unit,
     onOpenFolder: (MediaFolder) -> Unit,
     onPlay: (MediaFile) -> Unit,
@@ -79,6 +80,7 @@ fun HomeScreen(
             .sortedByDescending(playbackStore::updatedAt)
             .take(6)
     }
+    val hasRemovableSource = state.sources.any { it.isRemovable && it.connected }
 
     Column(
         modifier = Modifier
@@ -93,9 +95,9 @@ fun HomeScreen(
                 Text("Главная", fontSize = 30.sp, fontWeight = FontWeight.Bold)
                 Text(
                     text = if (state.sources.any(RemovableSource::connected)) {
-                        "Папки с подключённых носителей"
+                        "Папки из памяти устройства и подключённых носителей"
                     } else {
-                        "Подключите флешку или внешний диск"
+                        "Разрешите доступ к памяти или подключите носитель"
                     },
                     color = AutoMuted,
                     fontSize = 14.sp,
@@ -103,7 +105,7 @@ fun HomeScreen(
             }
             Spacer(Modifier.weight(1f))
             state.sources.filter(RemovableSource::connected).take(3).forEach { source ->
-                SourceChip(source.name)
+                SourceChip(source.name, source.isRemovable)
                 Spacer(Modifier.width(8.dp))
             }
             IconButton(onClick = onRefresh) {
@@ -120,7 +122,7 @@ fun HomeScreen(
             Text(state.error, color = Color(0xFFFF8A9A), fontSize = 13.sp)
         }
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(18.dp))
 
         if (state.loading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -129,9 +131,17 @@ fun HomeScreen(
             return@Column
         }
 
-        if (state.sources.isEmpty()) {
-            NoMediaSource(onAddSource)
+        if (!state.internalStorageAccessible && !hasRemovableSource) {
+            NoMediaSource(
+                onRequestInternalAccess = onRequestInternalAccess,
+                onAddSource = onAddSource,
+            )
             return@Column
+        }
+
+        if (!state.internalStorageFullAccess) {
+            InternalAccessBanner(onRequestInternalAccess)
+            Spacer(Modifier.height(14.dp))
         }
 
         if (continued.isNotEmpty()) {
@@ -168,7 +178,7 @@ fun HomeScreen(
                     Icon(Icons.Rounded.Folder, contentDescription = null, tint = AutoPurple, modifier = Modifier.size(44.dp))
                     Spacer(Modifier.height(12.dp))
                     Text("Папки с видео не найдены", fontWeight = FontWeight.SemiBold)
-                    Text("Проверьте носитель или обновите медиатеку", color = AutoMuted)
+                    Text("Проверьте память, носитель или обновите медиатеку", color = AutoMuted)
                 }
             }
         } else {
@@ -187,7 +197,32 @@ fun HomeScreen(
 }
 
 @Composable
-private fun SourceChip(name: String) {
+private fun InternalAccessBanner(onRequestInternalAccess: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF191126))
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Rounded.Storage, contentDescription = null, tint = AutoPurple)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Доступ к внутренней памяти ограничен", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Text("Разрешите чтение видео и аудио на планшете", color = AutoMuted, fontSize = 11.sp)
+        }
+        Button(
+            onClick = onRequestInternalAccess,
+            colors = ButtonDefaults.buttonColors(containerColor = AutoPurple),
+        ) {
+            Text("Разрешить")
+        }
+    }
+}
+
+@Composable
+private fun SourceChip(name: String, isRemovable: Boolean) {
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(50))
@@ -195,7 +230,12 @@ private fun SourceChip(name: String) {
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Rounded.Usb, contentDescription = null, tint = AutoGreen, modifier = Modifier.size(16.dp))
+        Icon(
+            imageVector = if (isRemovable) Icons.Rounded.Usb else Icons.Rounded.Storage,
+            contentDescription = null,
+            tint = AutoGreen,
+            modifier = Modifier.size(16.dp),
+        )
         Spacer(Modifier.width(6.dp))
         Text(name, color = AutoMuted, fontSize = 12.sp, maxLines = 1)
     }
@@ -302,21 +342,34 @@ private fun FolderCard(folder: MediaFolder, onClick: () -> Unit) {
 }
 
 @Composable
-private fun NoMediaSource(onAddSource: () -> Unit) {
+private fun NoMediaSource(
+    onRequestInternalAccess: () -> Unit,
+    onAddSource: () -> Unit,
+) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Rounded.Usb, contentDescription = null, tint = AutoPurple, modifier = Modifier.size(64.dp))
+            Icon(Icons.Rounded.Storage, contentDescription = null, tint = AutoPurple, modifier = Modifier.size(64.dp))
             Spacer(Modifier.height(16.dp))
-            Text("Подключите съёмный носитель", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Text("Выберите корневую папку флешки или внешнего диска", color = AutoMuted)
+            Text("Откройте доступ к медиатеке", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Text("Плеер найдёт видео и аудио во внутренней памяти планшета", color = AutoMuted)
             Spacer(Modifier.height(20.dp))
-            Button(
-                onClick = onAddSource,
-                colors = ButtonDefaults.buttonColors(containerColor = AutoPurple),
-            ) {
-                Icon(Icons.Rounded.Add, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Выбрать носитель")
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = onRequestInternalAccess,
+                    colors = ButtonDefaults.buttonColors(containerColor = AutoPurple),
+                ) {
+                    Icon(Icons.Rounded.Storage, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Доступ к памяти")
+                }
+                Button(
+                    onClick = onAddSource,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF292238)),
+                ) {
+                    Icon(Icons.Rounded.Add, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Добавить носитель")
+                }
             }
         }
     }
