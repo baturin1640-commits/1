@@ -63,9 +63,7 @@ android {
 }
 
 kotlin {
-    sourceSets.getByName("main").kotlin.exclude(
-        "com/autovideo/app/StablePlayerOverlay.kt"
-    )
+    sourceSets.getByName("main").kotlin.exclude("**/StablePlayerOverlay.kt")
 }
 
 dependencies {
@@ -102,9 +100,6 @@ dependencies {
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
 }
 
-// The connected CI workflow currently invokes assembleDebug only. Keeping the
-// verification tasks as dependencies makes every CI APK build run unit tests
-// and Android lint without weakening either check.
 tasks.matching { it.name == "assembleDebug" }.configureEach {
     dependsOn("testDebugUnitTest", "lintDebug")
 }
