@@ -4,7 +4,6 @@ import android.content.ContentResolver
 import android.net.Uri
 import java.io.ByteArrayOutputStream
 import java.io.IOException
-import java.net.HttpURLConnection
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
 import kotlinx.coroutines.Dispatchers
@@ -19,13 +18,17 @@ class PlaylistRepository(private val resolver: ContentResolver) {
     }
 
     suspend fun readRemote(rawUrl: String): M3uParseResult = withContext(Dispatchers.IO) {
+        downloadRemote(rawUrl)
+    }
+
+    private suspend fun downloadRemote(rawUrl: String): M3uParseResult {
         var currentUrl = OnlineUrlValidator.normalizeSecureUrl(rawUrl)
             ?: throw IOException("Разрешены только корректные HTTPS-адреса")
         var redirectCount = 0
 
-        while (true) {
+        while (redirectCount <= MAX_REDIRECTS) {
             ensureActive()
-            val connection = (URL(currentUrl).openConnection() as? HttpsURLConnection)
+            val connection = URL(currentUrl).openConnection() as? HttpsURLConnection
                 ?: throw IOException("Требуется защищённое HTTPS-соединение")
             try {
                 connection.instanceFollowRedirects = false
@@ -38,7 +41,6 @@ class PlaylistRepository(private val resolver: ContentResolver) {
 
                 val code = connection.responseCode
                 if (code in 300..399) {
-                    if (redirectCount >= MAX_REDIRECTS) throw IOException("Слишком много перенаправлений")
                     val location = connection.getHeaderField("Location")
                     currentUrl = OnlineUrlValidator.resolveSecureUrl(currentUrl, location.orEmpty())
                         ?: throw IOException("Сервер перенаправил на небезопасный адрес")
@@ -46,21 +48,22 @@ class PlaylistRepository(private val resolver: ContentResolver) {
                     continue
                 }
                 if (code !in 200..299) throw IOException("Сервер вернул ошибку $code")
-                val declaredLength = connection.contentLengthLong
-                if (declaredLength > MAX_BYTES) throw IOException("Плейлист слишком большой")
+                if (connection.contentLengthLong > MAX_BYTES) throw IOException("Плейлист слишком большой")
 
                 val text = connection.inputStream.use(::readLimitedUtf8)
-                return@withContext PlaylistParser.parse(text, currentUrl)
+                return PlaylistParser.parse(text, currentUrl)
             } finally {
                 connection.disconnect()
             }
         }
+
+        throw IOException("Слишком много перенаправлений")
     }
 
     private fun readLimitedUtf8(input: java.io.InputStream): String {
         val output = ByteArrayOutputStream()
         val buffer = ByteArray(8_192)
-        var total = 0
+        var total = 0L
         while (true) {
             val count = input.read(buffer)
             if (count < 0) break
