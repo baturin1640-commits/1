@@ -17,6 +17,12 @@ class PlaybackStore(context: Context) {
         return (position(file).toFloat() / total.toFloat()).coerceIn(0f, 1f)
     }
 
+    fun latestVideo(files: List<MediaFile>): MediaFile? = files
+        .asSequence()
+        .filter(MediaFile::isVideo)
+        .filter { position(it) > 0L }
+        .maxByOrNull(::updatedAt)
+
     fun save(file: MediaFile, positionMs: Long, durationMs: Long) {
         if (durationMs <= 0L) return
         val savedPosition = if (positionMs >= durationMs - 2_000L) 0L else positionMs.coerceAtLeast(0L)
@@ -24,6 +30,7 @@ class PlaybackStore(context: Context) {
             .putLong("${key(file)}_position", savedPosition)
             .putLong("${key(file)}_duration", durationMs)
             .putLong("${key(file)}_updated", System.currentTimeMillis())
+            .putString("last_media_uri", file.uriString)
             .apply()
     }
 
