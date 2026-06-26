@@ -7,6 +7,7 @@ import java.io.IOException
 import java.net.URL
 import javax.net.ssl.HttpsURLConnection
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
@@ -27,7 +28,7 @@ class PlaylistRepository(private val resolver: ContentResolver) {
         var redirectCount = 0
 
         while (redirectCount <= MAX_REDIRECTS) {
-            ensureActive()
+            currentCoroutineContext().ensureActive()
             val connection = URL(currentUrl).openConnection() as? HttpsURLConnection
                 ?: throw IOException("Требуется защищённое HTTPS-соединение")
             try {
