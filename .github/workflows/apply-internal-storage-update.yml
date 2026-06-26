@@ -1,0 +1,37 @@
+name: Apply internal storage update
+
+on:
+  push:
+    branches:
+      - feat/internal-storage-and-new-icon
+    paths:
+      - tools/apply_internal_storage_update_v2.py
+      - .github/workflows/apply-internal-storage-update.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/internal-storage-and-new-icon
+          fetch-depth: 0
+
+      - name: Apply source changes
+        run: python3 tools/apply_internal_storage_update_v2.py
+
+      - name: Commit generated changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app README.md
+          if git diff --cached --quiet; then
+            echo "No generated changes"
+          else
+            git commit -m "feat: scan internal Android storage and update icon"
+            git push origin HEAD:feat/internal-storage-and-new-icon
+          fi
