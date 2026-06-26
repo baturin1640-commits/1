@@ -53,7 +53,6 @@ class MainActivity : ComponentActivity() {
                     permissionLauncher.launch(missing)
                 } else {
                     requestAllFilesAccessOnce()
-                    viewModel.refresh()
                 }
             }
 
