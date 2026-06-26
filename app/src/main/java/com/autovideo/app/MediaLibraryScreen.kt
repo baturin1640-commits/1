@@ -33,8 +33,14 @@ fun MediaLibraryScreen(
     onPlay: (MediaFile) -> Unit,
 ) {
     Column(Modifier.fillMaxSize().padding(horizontal = 30.dp, vertical = 22.dp)) {
-        Text(title, fontSize = 34.sp, fontWeight = FontWeight.Bold)
-        Text("${files.size} файлов в медиатеке", color = AutoMuted, fontSize = 15.sp)
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column {
+                Text(title, color = AutoText, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+                Text("${files.size} файлов в медиатеке", color = AutoMuted, fontSize = 15.sp)
+            }
+            Spacer(Modifier.weight(1f))
+            AppClock()
+        }
         Spacer(Modifier.height(24.dp))
 
         when {
@@ -91,6 +97,7 @@ fun MediaFileCard(file: MediaFile, onClick: () -> Unit) {
             Column(Modifier.weight(1f)) {
                 Text(
                     file.name,
+                    color = AutoText,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,

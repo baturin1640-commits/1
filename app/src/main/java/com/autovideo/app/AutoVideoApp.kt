@@ -5,19 +5,20 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
-import android.provider.Settings as AndroidSettings
 import android.os.SystemClock
+import android.provider.Settings as AndroidSettings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -42,6 +43,7 @@ import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.PhoneAndroid
+import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Usb
@@ -58,11 +60,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -88,6 +90,8 @@ fun AutoVideoApp(
     var playingFile by remember { mutableStateOf<MediaFile?>(null) }
     var playingQueue by remember { mutableStateOf<List<MediaFile>>(emptyList()) }
     var lastExitBackMs by remember { mutableLongStateOf(0L) }
+
+    val latestVideo = playbackStore.latestVideo(state.videoFiles)
 
     fun startPlayback(file: MediaFile, queue: List<MediaFile>) {
         val normalized = queue.distinctBy(MediaFile::uriString)
@@ -116,43 +120,52 @@ fun AutoVideoApp(
         }
     }
 
-    val destinationKey = when {
+    val destination = when {
         playingFile != null -> "player:${playingFile?.uriString}"
         selectedFolder != null -> "folder:${selectedFolder?.id}"
-        else -> "section:${section.name}"
+        else -> "library"
     }
 
     Box(modifier = Modifier.fillMaxSize().background(AutoBackground)) {
         AnimatedContent(
-            targetState = destinationKey,
+            targetState = destination,
             transitionSpec = {
-                (fadeIn(tween(260)) + scaleIn(tween(300), initialScale = 0.97f))
-                    .togetherWith(fadeOut(tween(180)) + scaleOut(tween(200), targetScale = 1.02f))
+                val enter = slideInHorizontally(
+                    animationSpec = tween(380, easing = FastOutSlowInEasing),
+                    initialOffsetX = { it / 10 },
+                ) + fadeIn(tween(300))
+                val exit = slideOutHorizontally(
+                    animationSpec = tween(300, easing = FastOutSlowInEasing),
+                    targetOffsetX = { -it / 14 },
+                ) + fadeOut(tween(220))
+                enter.togetherWith(exit)
             },
-            label = "pageTransition",
+            label = "mainPageTransition",
         ) { target ->
             when {
                 target.startsWith("player:") && playingFile != null -> PlayerScreen(
                     file = checkNotNull(playingFile),
                     queue = playingQueue,
                     playbackStore = playbackStore,
-                    onSelectFile = { next -> playingFile = next },
+                    onSelectFile = { playingFile = it },
                     onBack = { playingFile = null },
                 )
 
                 target.startsWith("folder:") && selectedFolder != null -> FolderBrowserScreen(
                     folder = checkNotNull(selectedFolder),
                     onBack = { selectedFolder = null },
-                    onPlay = { file ->
-                        startPlayback(file, checkNotNull(selectedFolder).files)
-                    },
+                    onPlay = { file -> startPlayback(file, checkNotNull(selectedFolder).files) },
                 )
 
                 else -> MainLibraryShell(
                     state = state,
                     section = section,
                     playbackStore = playbackStore,
+                    latestVideo = latestVideo,
                     onSelectSection = { section = it },
+                    onResumeLatest = {
+                        latestVideo?.let { startPlayback(it, state.videoFiles) }
+                    },
                     onAddSource = onAddSource,
                     onRefresh = onRefresh,
                     onRemoveSource = onRemoveSource,
@@ -169,59 +182,60 @@ private fun MainLibraryShell(
     state: LibraryUiState,
     section: AppSection,
     playbackStore: PlaybackStore,
+    latestVideo: MediaFile?,
     onSelectSection: (AppSection) -> Unit,
+    onResumeLatest: () -> Unit,
     onAddSource: () -> Unit,
     onRefresh: () -> Unit,
     onRemoveSource: (String) -> Unit,
     onOpenFolder: (MediaFolder) -> Unit,
     onPlay: (MediaFile, List<MediaFile>) -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(AutoBackground, Color(0xFF130B24), AutoBackground),
-                )
-            ),
-    ) {
+    Row(modifier = Modifier.fillMaxSize().background(AutoBackground)) {
         SideNavigation(
             selected = section,
-            connected = state.sources.any(RemovableSource::connected),
+            latestVideo = latestVideo,
             onSelect = onSelectSection,
+            onResumeLatest = onResumeLatest,
         )
 
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
             AnimatedContent(
                 targetState = section,
                 transitionSpec = {
-                    (fadeIn(tween(220)) + scaleIn(tween(260), initialScale = 0.985f))
-                        .togetherWith(fadeOut(tween(150)) + scaleOut(tween(180), targetScale = 1.01f))
+                    val forward = targetState.ordinal > initialState.ordinal
+                    val enter = slideInHorizontally(
+                        animationSpec = tween(430, easing = FastOutSlowInEasing),
+                        initialOffsetX = { width -> if (forward) width / 9 else -width / 9 },
+                    ) + fadeIn(tween(340))
+                    val exit = slideOutHorizontally(
+                        animationSpec = tween(360, easing = FastOutSlowInEasing),
+                        targetOffsetX = { width -> if (forward) -width / 12 else width / 12 },
+                    ) + fadeOut(tween(250))
+                    enter.togetherWith(exit)
                 },
                 label = "sectionTransition",
-            ) { currentSection ->
-                when (currentSection) {
+            ) { current ->
+                when (current) {
                     AppSection.HOME -> HomeScreen(
                         state = state,
-                        playbackStore = playbackStore,
                         onAddSource = onAddSource,
                         onRefresh = onRefresh,
                         onOpenFolder = onOpenFolder,
-                        onPlay = { file -> onPlay(file, state.folders.flatMap(MediaFolder::files)) },
                     )
 
                     AppSection.VIDEO -> VideoFoldersScreen(
                         folders = state.videoFolders,
                         loading = state.loading,
+                        playbackStore = playbackStore,
                         onOpenFolder = onOpenFolder,
+                        onPlay = { file -> onPlay(file, state.videoFiles) },
                     )
 
-                    AppSection.AUDIO -> MediaLibraryScreen(
-                        title = "Аудио",
-                        files = state.audioFiles,
+                    AppSection.AUDIO -> AudioFoldersScreen(
+                        folders = state.audioFolders,
                         loading = state.loading,
-                        emptyMessage = "Аудиофайлы во внутренней памяти и на носителях не найдены",
-                        onPlay = { file -> onPlay(file, state.audioFiles) },
+                        onOpenFolder = onOpenFolder,
                     )
 
                     AppSection.SETTINGS -> SourcesScreen(
@@ -239,40 +253,44 @@ private fun MainLibraryShell(
 @Composable
 private fun SideNavigation(
     selected: AppSection,
-    connected: Boolean,
+    latestVideo: MediaFile?,
     onSelect: (AppSection) -> Unit,
+    onResumeLatest: () -> Unit,
 ) {
     Column(
         modifier = Modifier
-            .width(118.dp)
+            .width(124.dp)
             .fillMaxHeight()
-            .background(Color(0xED090710))
+            .background(Color(0xFF09080D))
             .padding(vertical = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(
-            text = "AV",
-            color = AutoText,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.Black,
-        )
-        Spacer(Modifier.height(20.dp))
+        Text("AV", color = AutoText, fontSize = 22.sp, fontWeight = FontWeight.Black)
+        Spacer(Modifier.height(18.dp))
         NavigationItem("Главная", Icons.Rounded.Home, AppSection.HOME, selected, onSelect)
         NavigationItem("Видео", Icons.Rounded.VideoLibrary, AppSection.VIDEO, selected, onSelect)
-        NavigationItem("Аудио", Icons.Rounded.Audiotrack, AppSection.AUDIO, selected, onSelect)
+        NavigationItem("Музыка", Icons.Rounded.Audiotrack, AppSection.AUDIO, selected, onSelect)
         NavigationItem("Настройки", Icons.Rounded.Settings, AppSection.SETTINGS, selected, onSelect)
         Spacer(Modifier.weight(1f))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .size(11.dp)
-                    .background(
-                        if (connected) AutoGreen else Color(0xFF6B6478),
-                        RoundedCornerShape(50),
-                    )
+
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            HeadUnitIconButton(
+                icon = Icons.Rounded.PlayCircle,
+                contentDescription = "Продолжить просмотр",
+                onClick = onResumeLatest,
+                enabled = latestVideo != null,
+                size = 72.dp,
+                iconSize = 42.dp,
+                backgroundColor = if (latestVideo != null) AutoPurple else AutoSurfaceHigh,
             )
-            Spacer(Modifier.width(7.dp))
-            Text(if (connected) "Медиа" else "Нет", color = AutoMuted, fontSize = 12.sp)
+            Spacer(Modifier.height(7.dp))
+            Text(
+                text = if (latestVideo != null) "Продолжить" else "Нет истории",
+                color = if (latestVideo != null) AutoText else AutoMuted,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+            )
         }
     }
 }
@@ -287,15 +305,13 @@ private fun NavigationItem(
 ) {
     val active = section == selected
     val scale by animateFloatAsState(
-        targetValue = if (active) 1.04f else 1f,
-        animationSpec = tween(220),
-        label = "navActiveScale",
+        targetValue = if (active) 1.035f else 1f,
+        animationSpec = tween(240, easing = FastOutSlowInEasing),
+        label = "navigationScale",
     )
 
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 7.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
@@ -306,7 +322,7 @@ private fun NavigationItem(
                     onClick = { onSelect(section) },
                     shape = RoundedCornerShape(22.dp),
                 )
-                .background(if (active) AutoPurple else Color(0xFF171320)),
+                .background(if (active) AutoPurple else AutoSurfaceHigh),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -336,16 +352,15 @@ private fun SourcesScreen(
     val context = LocalContext.current
     val settingsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
-    ) {
-        onRefresh()
-    }
+    ) { onRefresh() }
 
     fun openPermissions() {
-        val intent = Intent(
-            AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS,
-            Uri.parse("package:${context.packageName}"),
-        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        settingsLauncher.launch(intent)
+        settingsLauncher.launch(
+            Intent(
+                AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:${context.packageName}"),
+            ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
     }
 
     Column(Modifier.fillMaxSize().padding(30.dp)) {
@@ -354,8 +369,12 @@ private fun SourcesScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column {
-                Text("Настройки", fontSize = 34.sp, fontWeight = FontWeight.Bold)
-                Text("Память, накопители и системные разрешения", color = AutoMuted, fontSize = 15.sp)
+                Text("Настройки", color = AutoText, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Память, накопители и системные разрешения",
+                    color = AutoMuted,
+                    fontSize = 15.sp,
+                )
             }
             Spacer(Modifier.weight(1f))
             HeadUnitIconButton(
@@ -378,13 +397,15 @@ private fun SourcesScreen(
                 icon = Icons.Rounded.Add,
                 onClick = onAddSource,
             )
+            Spacer(Modifier.width(12.dp))
+            AppClock()
         }
 
         Spacer(Modifier.height(20.dp))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color(0xFF171320), RoundedCornerShape(20.dp))
+                .background(AutoSurfaceHigh, RoundedCornerShape(20.dp))
                 .padding(horizontal = 20.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -396,9 +417,14 @@ private fun SourcesScreen(
             )
             Spacer(Modifier.width(14.dp))
             Column {
-                Text("Выдать все разрешения", fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Кнопка открывает системную страницу приложения. Разрешите файлы, видео, аудио и управление памятью.",
+                    "Выдать все разрешения",
+                    color = AutoText,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    "Откройте системные настройки и разрешите файлы, видео, аудио и управление памятью.",
                     color = AutoMuted,
                     fontSize = 13.sp,
                 )
@@ -406,10 +432,10 @@ private fun SourcesScreen(
         }
 
         Spacer(Modifier.height(22.dp))
-        Text("Источники медиа", fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
+        Text("Источники медиа", color = AutoText, fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(12.dp))
 
-        if (state.loading) {
+        if (state.loading && state.sources.isEmpty()) {
             CircularProgressIndicator(color = AutoPurple, modifier = Modifier.size(58.dp))
         } else if (state.sources.isEmpty()) {
             EmptySourcesCard(onAddSource)
@@ -433,9 +459,14 @@ private fun SourcesScreen(
                         )
                         Spacer(Modifier.width(18.dp))
                         Column {
-                            Text(source.name, fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
                             Text(
-                                if (source.connected) "Подключён и доступен" else "Источник сейчас недоступен",
+                                source.name,
+                                color = AutoText,
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 20.sp,
+                            )
+                            Text(
+                                if (source.connected) "Подключён и доступен" else "Источник недоступен",
                                 color = if (source.connected) AutoGreen else AutoMuted,
                                 fontSize = 14.sp,
                             )
@@ -474,7 +505,12 @@ private fun EmptySourcesCard(onAddSource: () -> Unit) {
             modifier = Modifier.size(76.dp),
         )
         Spacer(Modifier.height(16.dp))
-        Text("Медиафайлы пока не найдены", fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            "Медиафайлы пока не найдены",
+            color = AutoText,
+            fontSize = 22.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
         Text(
             "Разрешите доступ к памяти или выберите отдельную папку, флешку либо диск",
             color = AutoMuted,

@@ -1,5 +1,6 @@
 package com.autovideo.app
 
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -40,8 +41,11 @@ fun Modifier.headUnitPressable(
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed && enabled) 0.94f else 1f,
-        animationSpec = tween(durationMillis = if (pressed) 75 else 150),
+        targetValue = if (pressed && enabled) 0.95f else 1f,
+        animationSpec = tween(
+            durationMillis = if (pressed) 90 else 180,
+            easing = FastOutSlowInEasing,
+        ),
         label = "headUnitPressScale",
     )
 
@@ -107,8 +111,18 @@ fun HeadUnitActionButton(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(30.dp))
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = Color.White,
+            modifier = Modifier.size(30.dp),
+        )
         Spacer(Modifier.width(12.dp))
-        Text(text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            text,
+            color = Color.White,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
     }
 }

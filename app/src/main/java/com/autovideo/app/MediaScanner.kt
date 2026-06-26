@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.webkit.MimeTypeMap
 import androidx.documentfile.provider.DocumentFile
+import java.util.ArrayDeque
 import java.util.Locale
 
 class MediaScanner(private val context: Context) {
@@ -15,80 +16,80 @@ class MediaScanner(private val context: Context) {
         "mp3", "m4a", "aac", "flac", "wav", "wave", "ogg", "oga", "opus",
         "amr", "ac3", "eac3", "dts", "wma", "ape", "alac", "aiff", "aif"
     )
+    private val skippedNames = setOf(
+        "android", ".thumbnails", "lost.dir", "system volume information", "\$recycle.bin"
+    )
 
     fun scan(uris: List<Uri>): Pair<List<RemovableSource>, List<MediaFolder>> {
         val sources = mutableListOf<RemovableSource>()
         val folders = mutableListOf<MediaFolder>()
+        val deadlineNanos = System.nanoTime() + 6_000_000_000L
+        var visitedDirectories = 0
 
         uris.forEach { treeUri ->
+            if (System.nanoTime() >= deadlineNanos || visitedDirectories >= 4_000) return@forEach
             val root = runCatching { DocumentFile.fromTreeUri(context, treeUri) }.getOrNull()
             val sourceName = root?.name?.takeIf(String::isNotBlank)
                 ?: treeUri.lastPathSegment?.substringAfterLast(':')?.takeIf(String::isNotBlank)
                 ?: "Съёмный носитель"
             val connected = root?.exists() == true && root.canRead()
             sources += RemovableSource(treeUri.toString(), sourceName, connected)
+            if (!connected || root == null) return@forEach
 
-            if (connected && root != null) {
-                scanDirectory(
-                    directory = root,
-                    sourceName = sourceName,
-                    sourceUriString = treeUri.toString(),
-                    output = folders,
-                    visited = mutableSetOf(),
-                    depth = 0,
-                )
+            val queue = ArrayDeque<DirectoryNode>()
+            queue.add(DirectoryNode(root, 0))
+            val seen = hashSetOf<String>()
+
+            while (queue.isNotEmpty() && System.nanoTime() < deadlineNanos && visitedDirectories < 4_000) {
+                val node = queue.removeFirst()
+                if (node.depth > 16) continue
+                val uriKey = node.directory.uri.toString()
+                if (!seen.add(uriKey)) continue
+                visitedDirectories++
+
+                val children = runCatching { node.directory.listFiles() }.getOrDefault(emptyArray())
+                val folderName = node.directory.name?.takeIf(String::isNotBlank) ?: "Без названия"
+                val mediaFiles = children
+                    .asSequence()
+                    .filter(DocumentFile::isFile)
+                    .mapNotNull { toMediaFile(it, folderName, sourceName) }
+                    .sortedBy { it.name.lowercase(Locale.getDefault()) }
+                    .toList()
+
+                if (mediaFiles.isNotEmpty()) {
+                    folders += MediaFolder(
+                        id = "${treeUri}#${node.directory.uri}",
+                        name = folderName,
+                        sourceName = sourceName,
+                        sourceUriString = treeUri.toString(),
+                        files = mediaFiles,
+                    )
+                }
+
+                children
+                    .asSequence()
+                    .filter { it.isDirectory && it.canRead() }
+                    .filter { child ->
+                        val name = child.name.orEmpty().lowercase(Locale.ROOT)
+                        name !in skippedNames && !name.startsWith('.')
+                    }
+                    .sortedBy { directoryPriority(it.name.orEmpty()) }
+                    .forEach { queue.add(DirectoryNode(it, node.depth + 1)) }
             }
         }
 
-        val sortedSources = sources.sortedBy { it.name.lowercase(Locale.getDefault()) }
-        val sortedFolders = folders.sortedWith(
-            compareBy<MediaFolder> { it.sourceName.lowercase(Locale.getDefault()) }
-                .thenBy { it.name.lowercase(Locale.getDefault()) }
-        )
-        return sortedSources to sortedFolders
+        return sources.sortedBy { it.name.lowercase(Locale.getDefault()) } to
+            folders.sortedWith(
+                compareBy<MediaFolder> { it.sourceName.lowercase(Locale.getDefault()) }
+                    .thenBy { it.name.lowercase(Locale.getDefault()) }
+            )
     }
 
-    private fun scanDirectory(
-        directory: DocumentFile,
-        sourceName: String,
-        sourceUriString: String,
-        output: MutableList<MediaFolder>,
-        visited: MutableSet<String>,
-        depth: Int,
-    ) {
-        if (depth > 32 || !visited.add(directory.uri.toString())) return
-
-        val children = runCatching { directory.listFiles() }.getOrDefault(emptyArray())
-        val folderName = directory.name?.takeIf(String::isNotBlank) ?: "Без названия"
-        val mediaFiles = children
-            .asSequence()
-            .filter { it.isFile }
-            .mapNotNull { toMediaFile(it, folderName, sourceName) }
-            .sortedBy { it.name.lowercase(Locale.getDefault()) }
-            .toList()
-
-        if (mediaFiles.isNotEmpty()) {
-            output += MediaFolder(
-                id = "${sourceUriString}#${directory.uri}",
-                name = folderName,
-                sourceName = sourceName,
-                sourceUriString = sourceUriString,
-                files = mediaFiles,
-            )
-        }
-
-        children.asSequence()
-            .filter { it.isDirectory && it.canRead() }
-            .forEach {
-                scanDirectory(
-                    directory = it,
-                    sourceName = sourceName,
-                    sourceUriString = sourceUriString,
-                    output = output,
-                    visited = visited,
-                    depth = depth + 1,
-                )
-            }
+    private fun directoryPriority(name: String): Int = when (name.lowercase(Locale.ROOT)) {
+        "movies", "movie", "video", "videos" -> 0
+        "download", "downloads" -> 1
+        "dcim", "music" -> 2
+        else -> 10
     }
 
     private fun toMediaFile(
@@ -115,4 +116,9 @@ class MediaScanner(private val context: Context) {
             sourceName = sourceName,
         )
     }
+
+    private data class DirectoryNode(
+        val directory: DocumentFile,
+        val depth: Int,
+    )
 }

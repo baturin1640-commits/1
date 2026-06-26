@@ -31,6 +31,7 @@ data class MediaFolder(
     val videoCount: Int get() = files.count(MediaFile::isVideo)
     val audioCount: Int get() = files.size - videoCount
     val containsVideo: Boolean get() = videoCount > 0
+    val containsAudio: Boolean get() = audioCount > 0
 }
 
 data class LibraryUiState(
@@ -40,6 +41,7 @@ data class LibraryUiState(
     val error: String? = null,
 ) {
     val videoFolders: List<MediaFolder> get() = folders.filter(MediaFolder::containsVideo)
+    val audioFolders: List<MediaFolder> get() = folders.filter(MediaFolder::containsAudio)
     val videoFiles: List<MediaFile> get() = folders.flatMap(MediaFolder::files).filter(MediaFile::isVideo)
     val audioFiles: List<MediaFile> get() = folders.flatMap(MediaFolder::files).filter(MediaFile::isAudio)
 }
