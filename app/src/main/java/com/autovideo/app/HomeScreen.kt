@@ -1,7 +1,6 @@
 package com.autovideo.app
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,11 +25,8 @@ import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Usb
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,7 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -80,14 +76,14 @@ fun HomeScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 28.dp, vertical = 20.dp),
+            .padding(horizontal = 30.dp, vertical = 22.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column {
-                Text("Главная", fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                Text("Главная", fontSize = 34.sp, fontWeight = FontWeight.Bold)
                 Text(
                     text = if (state.sources.any(RemovableSource::connected)) {
                         "Видео во внутренней памяти и на подключённых носителях"
@@ -95,33 +91,47 @@ fun HomeScreen(
                         "Разрешите доступ к памяти или подключите накопитель"
                     },
                     color = AutoMuted,
-                    fontSize = 14.sp,
+                    fontSize = 15.sp,
                 )
             }
             Spacer(Modifier.weight(1f))
-            state.sources.filter(RemovableSource::connected).take(3).forEach { source ->
+            state.sources.filter(RemovableSource::connected).take(2).forEach { source ->
                 SourceChip(source)
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(10.dp))
             }
-            IconButton(onClick = onRefresh) {
-                Icon(Icons.Rounded.Refresh, contentDescription = "Обновить", tint = AutoMuted)
-            }
-            IconButton(onClick = { }) {
-                Icon(Icons.Rounded.Search, contentDescription = "Поиск", tint = AutoMuted)
-            }
-            Text(time, fontSize = 18.sp, fontWeight = FontWeight.Medium)
+            HeadUnitIconButton(
+                icon = Icons.Rounded.Refresh,
+                contentDescription = "Обновить",
+                onClick = onRefresh,
+                size = 62.dp,
+                iconSize = 32.dp,
+                backgroundColor = Color(0xFF171126),
+                tint = AutoMuted,
+            )
+            Spacer(Modifier.width(10.dp))
+            HeadUnitIconButton(
+                icon = Icons.Rounded.Search,
+                contentDescription = "Поиск",
+                onClick = { },
+                size = 62.dp,
+                iconSize = 32.dp,
+                backgroundColor = Color(0xFF171126),
+                tint = AutoMuted,
+            )
+            Spacer(Modifier.width(16.dp))
+            Text(time, fontSize = 20.sp, fontWeight = FontWeight.Medium)
         }
 
-        if (state.error != null) {
+        state.error?.let {
             Spacer(Modifier.height(10.dp))
-            Text(state.error, color = Color(0xFFFF8A9A), fontSize = 13.sp)
+            Text(it, color = Color(0xFFFF8A9A), fontSize = 14.sp)
         }
 
         Spacer(Modifier.height(20.dp))
 
         if (state.loading) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = AutoPurple)
+                CircularProgressIndicator(color = AutoPurple, modifier = Modifier.size(58.dp))
             }
             return@Column
         }
@@ -133,8 +143,8 @@ fun HomeScreen(
 
         if (continued.isNotEmpty()) {
             SectionHeader("Продолжить просмотр", "${continued.size} файлов")
-            Spacer(Modifier.height(10.dp))
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Spacer(Modifier.height(12.dp))
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                 items(continued, key = MediaFile::uriString) { file ->
                     ContinueCard(
                         file = file,
@@ -143,22 +153,21 @@ fun HomeScreen(
                     )
                 }
             }
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(22.dp))
         }
 
         SectionHeader(
             title = "Папки с видео",
             subtitle = "${state.videoFolders.size} папок · ${state.videoFiles.size} видео",
         )
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(12.dp))
 
         if (state.videoFolders.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(AutoSurfaceHigh),
+                    .background(AutoSurfaceHigh, RoundedCornerShape(24.dp)),
                 contentAlignment = Alignment.Center,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -166,19 +175,19 @@ fun HomeScreen(
                         Icons.Rounded.Folder,
                         contentDescription = null,
                         tint = AutoPurple,
-                        modifier = Modifier.size(44.dp),
+                        modifier = Modifier.size(88.dp),
                     )
-                    Spacer(Modifier.height(12.dp))
-                    Text("Папки с видео не найдены", fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(14.dp))
+                    Text("Папки с видео не найдены", fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
                     Text("Проверьте разрешения, память и подключённый носитель", color = AutoMuted)
                 }
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(245.dp),
+                columns = GridCells.Adaptive(280.dp),
                 modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
                 items(state.videoFolders, key = MediaFolder::id) { folder ->
                     FolderCard(folder = folder, onClick = { onOpenFolder(folder) })
@@ -192,9 +201,8 @@ fun HomeScreen(
 private fun SourceChip(source: RemovableSource) {
     Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .background(Color(0xFF171126))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .background(Color(0xFF171126), RoundedCornerShape(50))
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
@@ -208,19 +216,19 @@ private fun SourceChip(source: RemovableSource) {
             },
             contentDescription = null,
             tint = AutoGreen,
-            modifier = Modifier.size(16.dp),
+            modifier = Modifier.size(20.dp),
         )
-        Spacer(Modifier.width(6.dp))
-        Text(source.name, color = AutoMuted, fontSize = 12.sp, maxLines = 1)
+        Spacer(Modifier.width(7.dp))
+        Text(source.name, color = AutoMuted, fontSize = 13.sp, maxLines = 1)
     }
 }
 
 @Composable
 private fun SectionHeader(title: String, subtitle: String) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-        Text(title, fontSize = 19.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.width(10.dp))
-        Text(subtitle, color = AutoMuted, fontSize = 12.sp)
+        Text(title, fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.width(12.dp))
+        Text(subtitle, color = AutoMuted, fontSize = 13.sp)
     }
 }
 
@@ -228,28 +236,27 @@ private fun SectionHeader(title: String, subtitle: String) {
 private fun ContinueCard(file: MediaFile, progress: Float, onClick: () -> Unit) {
     Column(
         modifier = Modifier
-            .width(250.dp)
-            .clip(RoundedCornerShape(18.dp))
-            .background(AutoSurfaceHigh)
-            .clickable(onClick = onClick),
+            .width(290.dp)
+            .headUnitPressable(onClick = onClick, shape = RoundedCornerShape(22.dp))
+            .background(AutoSurfaceHigh),
     ) {
         VideoThumbnail(
             file = file,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(108.dp),
+                .height(138.dp),
             showPlayButton = true,
         )
         LinearProgressIndicator(
             progress = { progress },
-            modifier = Modifier.fillMaxWidth().height(4.dp),
+            modifier = Modifier.fillMaxWidth().height(5.dp),
             color = AutoPurple,
             trackColor = Color(0xFF292238),
         )
         Text(
             file.name,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-            fontSize = 13.sp,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+            fontSize = 15.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -259,51 +266,48 @@ private fun ContinueCard(file: MediaFile, progress: Float, onClick: () -> Unit) 
 
 @Composable
 private fun FolderCard(folder: MediaFolder, onClick: () -> Unit) {
-    val preview = folder.files.firstOrNull(MediaFile::isVideo)
-
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(176.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(AutoSurfaceHigh)
-            .clickable(onClick = onClick),
+            .height(205.dp)
+            .headUnitPressable(onClick = onClick, shape = RoundedCornerShape(24.dp))
+            .background(
+                Brush.linearGradient(
+                    listOf(Color(0xFF211635), Color(0xFF11101A), Color(0xFF151123))
+                )
+            )
+            .padding(18.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
-        if (preview != null) {
-            VideoThumbnail(
-                file = preview,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(104.dp),
-                showPlayButton = false,
+        Box(
+            modifier = Modifier
+                .size(106.dp)
+                .background(Color(0x332C1C48), RoundedCornerShape(26.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Rounded.Folder,
+                contentDescription = null,
+                tint = AutoPurple,
+                modifier = Modifier.size(80.dp),
             )
         }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 11.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Rounded.Folder, contentDescription = null, tint = AutoPurple)
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    folder.name,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    "${folder.videoCount} видео" +
-                        if (folder.audioCount > 0) " · ${folder.audioCount} аудио" else "",
-                    color = AutoMuted,
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                )
-            }
-            Text(folder.sourceName, color = AutoMuted, fontSize = 10.sp, maxLines = 1)
-        }
+        Spacer(Modifier.height(12.dp))
+        Text(
+            folder.name,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            "${folder.videoCount} видео · ${folder.sourceName}",
+            color = AutoMuted,
+            fontSize = 12.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -315,20 +319,17 @@ private fun NoMediaSource(onAddSource: () -> Unit) {
                 Icons.Rounded.PhoneAndroid,
                 contentDescription = null,
                 tint = AutoPurple,
-                modifier = Modifier.size(64.dp),
+                modifier = Modifier.size(84.dp),
             )
-            Spacer(Modifier.height(16.dp))
-            Text("Медиатека пока пуста", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(18.dp))
+            Text("Медиатека пока пуста", fontSize = 26.sp, fontWeight = FontWeight.Bold)
             Text("Разрешите доступ к памяти или выберите папку/накопитель", color = AutoMuted)
-            Spacer(Modifier.height(20.dp))
-            Button(
+            Spacer(Modifier.height(22.dp))
+            HeadUnitActionButton(
+                text = "Выбрать папку или носитель",
+                icon = Icons.Rounded.Add,
                 onClick = onAddSource,
-                colors = ButtonDefaults.buttonColors(containerColor = AutoPurple),
-            ) {
-                Icon(Icons.Rounded.Add, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Выбрать папку или носитель")
-            }
+            )
         }
     }
 }
