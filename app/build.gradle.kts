@@ -57,6 +57,7 @@ android {
         checkDependencies = true
         checkReleaseBuilds = true
         warningsAsErrors = false
+        textReport = true
     }
 }
 
@@ -98,6 +99,17 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+}
+
+val printLintTextReport by tasks.registering {
+    doLast {
+        val report = file("build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt")
+        if (report.isFile) println(report.readText())
+    }
+}
+
+tasks.matching { it.name == "lintDebug" }.configureEach {
+    finalizedBy(printLintTextReport)
 }
 
 tasks.matching { it.name == "assembleDebug" }.configureEach {
