@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Мягкое внешнее свечение экрана -->
+    <path
+        android:fillAlpha="0.24"
+        android:fillColor="#A855F7"
+        android:pathData="M27,27 C21,27 17,32 17,38 L17,72 C17,79 22,84 29,84 L79,84 C86,84 91,79 91,72 L91,38 C91,32 86,27 80,27 Z" />
+
+    <!-- Тёмный корпус -->
+    <path
+        android:fillColor="#171222"
+        android:pathData="M29,29 C23,29 19,34 19,40 L19,70 C19,77 24,82 31,82 L77,82 C84,82 89,77 89,70 L89,40 C89,34 84,29 78,29 Z" />
+
+    <!-- Фиолетовая рамка -->
+    <path
+        android:fillColor="#8B5CF6"
+        android:pathData="M31,32 C26,32 22,36 22,41 L22,69 C22,75 26,79 32,79 L76,79 C82,79 86,75 86,69 L86,41 C86,36 82,32 77,32 Z" />
+
+    <!-- Внутренняя чёрная панель -->
+    <path
+        android:fillColor="#08060D"
+        android:pathData="M33,35 C29,35 26,38 26,43 L26,67 C26,72 29,76 34,76 L74,76 C79,76 82,72 82,67 L82,43 C82,38 79,35 75,35 Z" />
+
+    <!-- Тонкий внутренний свет -->
+    <path
+        android:fillAlpha="0.38"
+        android:fillColor="#D8B4FE"
+        android:pathData="M34,37 C31,37 28,40 28,44 L28,66 C28,70 31,73 35,73 L73,73 C77,73 80,70 80,66 L80,44 C80,40 77,37 74,37 L34,37 Z M35,39 L73,39 C76,39 78,41 78,44 L78,66 C78,69 76,71 73,71 L35,71 C32,71 30,69 30,66 L30,44 C30,41 32,39 35,39 Z" />
+
+    <!-- Кнопка воспроизведения -->
+    <path
+        android:fillColor="#C084FC"
+        android:pathData="M47,44 C47,41 50,40 52,42 L69,52 C72,54 72,56 69,58 L52,68 C50,70 47,69 47,66 Z" />
+
+    <!-- Небольшой блик -->
+    <path
+        android:fillAlpha="0.56"
+        android:fillColor="#FFFFFF"
+        android:pathData="M49,44 C50,43 51,43 52,44 L66,52 C67,53 67,54 66,54 L52,47 C51,46 50,46 49,46 Z" />
+</vector>
