@@ -35,26 +35,16 @@ class InternalMediaScanner(private val context: Context) {
             val sourceUri = if (isPrimary) INTERNAL_SOURCE_URI else "mediastore://$volumeName"
             val groupedFiles = linkedMapOf<String, MutableList<MediaFile>>()
 
-            queryVolume(
-                volumeName = volumeName,
-                sourceName = sourceName,
-                access = access,
-                groupedFiles = groupedFiles,
-            )
+            queryVolume(volumeName, sourceName, access, groupedFiles)
 
             if (isPrimary || groupedFiles.isNotEmpty()) {
-                sources += RemovableSource(
-                    uriString = sourceUri,
-                    name = sourceName,
-                    connected = true,
-                )
+                sources += RemovableSource(sourceUri, sourceName, true)
             }
 
             groupedFiles.forEach { (folderPath, files) ->
-                val folderName = folderPath.substringAfterLast('/').ifBlank { sourceName }
                 folders += MediaFolder(
                     id = "$sourceUri#$folderPath",
-                    name = folderName,
+                    name = folderPath.substringAfterLast('/').ifBlank { sourceName },
                     sourceName = sourceName,
                     sourceUriString = sourceUri,
                     files = files.sortedBy { it.name.lowercase(Locale.getDefault()) },
@@ -65,13 +55,12 @@ class InternalMediaScanner(private val context: Context) {
         return sources.distinctBy(RemovableSource::uriString) to folders
     }
 
-    private fun externalVolumeNames(): Set<String> {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+    private fun externalVolumeNames(): Set<String> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             MediaStore.getExternalVolumeNames(context)
         } else {
             setOf("external")
         }
-    }
 
     private fun queryVolume(
         volumeName: String,
@@ -93,24 +82,23 @@ class InternalMediaScanner(private val context: Context) {
             pathColumn,
             MediaStore.Files.FileColumns.MEDIA_TYPE,
         )
+        val allowedTypes = buildList {
+            if (access.video) add(MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString())
+            if (access.audio) add(MediaStore.Files.FileColumns.MEDIA_TYPE_AUDIO.toString())
+        }
+        if (allowedTypes.isEmpty()) return
+        val selection = "${MediaStore.Files.FileColumns.MEDIA_TYPE} IN (${allowedTypes.joinToString(",")})"
 
         runCatching {
             resolver.query(
                 collection,
                 projection,
-                null,
+                selection,
                 null,
                 "${MediaStore.MediaColumns.DATE_MODIFIED} DESC",
             )
         }.getOrNull()?.use { cursor ->
-            readCursor(
-                cursor = cursor,
-                collection = collection,
-                pathColumn = pathColumn,
-                sourceName = sourceName,
-                access = access,
-                groupedFiles = groupedFiles,
-            )
+            readCursor(cursor, collection, pathColumn, sourceName, access, groupedFiles)
         }
     }
 
@@ -130,35 +118,29 @@ class InternalMediaScanner(private val context: Context) {
         val mediaTypeIndex = cursor.getColumnIndex(MediaStore.Files.FileColumns.MEDIA_TYPE)
 
         while (cursor.moveToNext()) {
-            val name = cursor.getString(nameIndex)?.takeIf { it.isNotBlank() } ?: continue
+            val name = cursor.getString(nameIndex)?.takeIf(String::isNotBlank) ?: continue
             val extension = name.substringAfterLast('.', "").lowercase(Locale.ROOT)
             val mime = if (mimeIndex >= 0) cursor.getString(mimeIndex) else null
             val mediaType = if (mediaTypeIndex >= 0) cursor.getInt(mediaTypeIndex) else 0
-
             val video = mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO ||
                 mime?.startsWith("video/") == true || extension in videoExtensions
             val audio = mediaType == MediaStore.Files.FileColumns.MEDIA_TYPE_AUDIO ||
                 mime?.startsWith("audio/") == true || extension in audioExtensions
-
             val isVideo = video && access.video
             val isAudio = !isVideo && audio && access.audio
             if (!isVideo && !isAudio) continue
 
-            val id = cursor.getLong(idIndex)
-            val size = if (sizeIndex >= 0) cursor.getLong(sizeIndex) else 0L
             val rawPath = if (pathIndex >= 0) cursor.getString(pathIndex).orEmpty() else ""
             val folderPath = normalizeFolderPath(rawPath, isVideo)
             val folderName = folderPath.substringAfterLast('/').ifBlank {
                 if (isVideo) "Видео" else "Аудио"
             }
-            val mediaUri = ContentUris.withAppendedId(collection, id)
-
             groupedFiles.getOrPut(folderPath) { mutableListOf() }.add(
                 MediaFile(
-                    uriString = mediaUri.toString(),
+                    uriString = ContentUris.withAppendedId(collection, cursor.getLong(idIndex)).toString(),
                     name = name,
                     mimeType = mime,
-                    sizeBytes = size,
+                    sizeBytes = if (sizeIndex >= 0) cursor.getLong(sizeIndex) else 0L,
                     isVideo = isVideo,
                     folderName = folderName,
                     sourceName = sourceName,
