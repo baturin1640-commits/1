@@ -1,7 +1,9 @@
 package com.autovideo.app
 
 import android.content.Context
+import android.content.res.AssetFileDescriptor
 import android.media.AudioManager
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.animation.AnimatedVisibility
@@ -21,11 +23,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RectangleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Fullscreen
@@ -36,7 +36,6 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.SkipNext
 import androidx.compose.material.icons.rounded.SkipPrevious
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
@@ -95,25 +94,27 @@ fun ReliablePlayerOverlay(
             arrayListOf(
                 "--audio-time-stretch",
                 "--no-spdif",
-                "--file-caching=2000",
-                "--network-caching=2000",
+                "--file-caching=3000",
+                "--network-caching=3000",
                 "--drop-late-frames",
                 "--skip-frames",
+                "--avcodec-fast",
                 "--no-video-title-show",
             ),
         )
     }
     val player = remember(file.uriString) { MediaPlayer(libVlc) }
     val playlist = remember(queue, file.uriString) {
-        queue.distinctBy(MediaFile::uriString).let { items ->
-            if (items.any { it.uriString == file.uriString }) items else listOf(file)
-        }
+        queue.filter(MediaFile::isVideo)
+            .distinctBy(MediaFile::uriString)
+            .let { items -> if (items.any { it.uriString == file.uriString }) items else listOf(file) }
     }
     val currentIndex = playlist.indexOfFirst { it.uriString == file.uriString }.coerceAtLeast(0)
     val previousFile = playlist.getOrNull(currentIndex - 1)
     val nextFile = playlist.getOrNull(currentIndex + 1)
 
     var videoLayout by remember(file.uriString) { mutableStateOf<VLCVideoLayout?>(null) }
+    var openedDescriptor by remember(file.uriString) { mutableStateOf<AssetFileDescriptor?>(null) }
     var softwareDecoder by remember(file.uriString) { mutableStateOf(false) }
     var fallbackAttempted by remember(file.uriString) { mutableStateOf(false) }
     var restartToken by remember(file.uriString) { mutableIntStateOf(0) }
@@ -176,7 +177,7 @@ fun ReliablePlayerOverlay(
         softwareDecoder = true
         fallbackAttempted = true
         error = null
-        message = "Программный декодер"
+        message = "Включены встроенные программные кодеки"
         restartToken++
     }
 
@@ -213,10 +214,10 @@ fun ReliablePlayerOverlay(
                             requestedPosition = player.time.coerceAtLeast(playbackStore.position(file))
                             softwareDecoder = true
                             fallbackAttempted = true
-                            message = "Переключение декодера"
+                            message = "Аппаратный декодер недоступен · переключение"
                             restartToken++
                         } else {
-                            error = "Не удалось декодировать файл. Проверьте целостность видео или повторите запуск."
+                            error = "Файл не удалось открыть. Нажмите «Повторить» — плеер заново подключит накопитель и встроенные кодеки."
                             controlsVisible = true
                         }
                     }
@@ -230,6 +231,8 @@ fun ReliablePlayerOverlay(
             runCatching { player.setEventListener(null) }
             runCatching { player.stop() }
             runCatching { player.detachViews() }
+            runCatching { openedDescriptor?.close() }
+            openedDescriptor = null
             runCatching { player.release() }
             runCatching { libVlc.release() }
             runCatching { audioManager.abandonAudioFocus(focusListener) }
@@ -237,7 +240,7 @@ fun ReliablePlayerOverlay(
     }
 
     LaunchedEffect(player, videoLayout, restartToken, file.uriString) {
-        if (file.isVideo && videoLayout == null) return@LaunchedEffect
+        if (videoLayout == null) return@LaunchedEffect
 
         runCatching {
             audioManager.requestAudioFocus(
@@ -248,19 +251,24 @@ fun ReliablePlayerOverlay(
         }
         error = null
         runCatching { player.stop() }
+        runCatching { openedDescriptor?.close() }
+        openedDescriptor = null
         player.setAudioOutput("android_audiotrack")
         player.setAudioDigitalOutputEnabled(false)
         player.setVolume(100)
 
         val media = runCatching {
-            Media(libVlc, file.uri).apply {
+            openVlcMedia(context, libVlc, file).also { opened ->
+                openedDescriptor = opened.descriptor
+            }.media.apply {
                 setHWDecoderEnabled(!softwareDecoder, false)
                 if (softwareDecoder) addOption(":avcodec-hw=none")
                 addOption(":no-spdif")
-                addOption(":file-caching=2000")
+                addOption(":file-caching=3000")
+                addOption(":network-caching=3000")
             }
         }.getOrElse {
-            error = "Файл недоступен. Возможно, накопитель был отключён."
+            error = "Не удалось получить доступ к файлу. Переподключите накопитель или выберите его заново."
             return@LaunchedEffect
         }
 
@@ -270,8 +278,8 @@ fun ReliablePlayerOverlay(
 
         val resumeAt = requestedPosition.coerceAtLeast(0L)
         if (resumeAt > 0L) {
-            for (attempt in 0 until 50) {
-                delay(80L)
+            for (attempt in 0 until 60) {
+                delay(100L)
                 val total = duration()
                 if (total > 0L) {
                     val target = resumeAt.coerceIn(0L, total)
@@ -300,7 +308,7 @@ fun ReliablePlayerOverlay(
 
     LaunchedEffect(message, scrubbing) {
         if (message != null && !scrubbing) {
-            delay(1_000L)
+            delay(1_300L)
             message = null
         }
     }
@@ -344,7 +352,7 @@ fun ReliablePlayerOverlay(
                             val target = (dragStartMs + delta).coerceIn(0L, total)
                             pendingSeekMs = target
                             updateProgress(target, total)
-                            message = (if (delta >= 0L) "+" else "−") + formatPlayerTime(abs(delta))
+                            message = (if (delta >= 0L) "+" else "−") + formatVideoTime(abs(delta))
                         }
                     },
                     onDragEnd = {
@@ -373,46 +381,30 @@ fun ReliablePlayerOverlay(
                     },
                     onDoubleTap = { point ->
                         val delta = if (point.x < size.width / 2f) -10_000L else 10_000L
-                        seekTo(player.time.coerceAtLeast(0L) + delta, if (delta < 0L) "−10 сек" else "+10 сек")
+                        seekTo(
+                            player.time.coerceAtLeast(0L) + delta,
+                            if (delta < 0L) "−10 сек" else "+10 сек",
+                        )
                     },
                 )
             },
     ) {
-        if (file.isVideo) {
-            AndroidView(
-                factory = { viewContext ->
-                    VLCVideoLayout(viewContext).also { layout ->
-                        layout.keepScreenOn = true
-                        videoLayout = layout
-                        player.attachViews(layout, null, true, false)
-                    }
-                },
-                update = { layout ->
+        AndroidView(
+            factory = { viewContext ->
+                VLCVideoLayout(viewContext).also { layout ->
+                    layout.keepScreenOn = true
                     videoLayout = layout
-                    layout.requestLayout()
-                    layout.invalidate()
-                    runCatching { player.updateVideoSurfaces() }
-                },
-                modifier = Modifier.fillMaxSize(),
-            )
-        } else {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Box(
-                    modifier = Modifier
-                        .size(if (windowed) 78.dp else 180.dp)
-                        .clip(CircleShape)
-                        .background(Brush.linearGradient(listOf(AutoPink, AutoPurple, AutoBlue))),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        Icons.Rounded.Audiotrack,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(if (windowed) 42.dp else 92.dp),
-                    )
+                    player.attachViews(layout, null, true, false)
                 }
-            }
-        }
+            },
+            update = { layout ->
+                videoLayout = layout
+                layout.requestLayout()
+                layout.invalidate()
+                runCatching { player.updateVideoSurfaces() }
+            },
+            modifier = Modifier.fillMaxSize(),
+        )
 
         message?.let { value ->
             Text(
@@ -423,7 +415,7 @@ fun ReliablePlayerOverlay(
                     .background(Color(0xE5070610))
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 color = Color.White,
-                fontSize = if (windowed) 12.sp else 19.sp,
+                fontSize = if (windowed) 12.sp else 18.sp,
                 fontWeight = FontWeight.Bold,
             )
         }
@@ -452,7 +444,11 @@ fun ReliablePlayerOverlay(
                     )
                     if (!windowed) {
                         Text(
-                            if (softwareDecoder) "Программный декодер" else "Аппаратный декодер",
+                            if (softwareDecoder) {
+                                "Встроенные программные кодеки"
+                            } else {
+                                "Аппаратный декодер · автоматический резерв"
+                            },
                             color = AutoMuted,
                             fontSize = 12.sp,
                         )
@@ -498,7 +494,7 @@ fun ReliablePlayerOverlay(
                     value,
                     color = Color(0xFFFFB0BB),
                     fontSize = if (windowed) 11.sp else 15.sp,
-                    maxLines = if (windowed) 2 else 4,
+                    maxLines = if (windowed) 3 else 5,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -553,7 +549,7 @@ fun ReliablePlayerOverlay(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     if (!windowed) {
                         Text(
-                            "${formatPlayerTime(positionMs)} / ${formatPlayerTime(durationMs)}",
+                            "${formatVideoTime(positionMs)} / ${formatVideoTime(durationMs)}",
                             color = Color.White,
                             fontSize = 13.sp,
                         )
@@ -616,7 +612,33 @@ fun ReliablePlayerOverlay(
     }
 }
 
-private fun formatPlayerTime(valueMs: Long): String {
+private data class OpenVlcMedia(
+    val media: Media,
+    val descriptor: AssetFileDescriptor?,
+)
+
+private fun openVlcMedia(context: Context, libVlc: LibVLC, file: MediaFile): OpenVlcMedia {
+    val uri = file.uri
+    return if (uri.scheme == "content") {
+        val descriptor = context.contentResolver.openAssetFileDescriptor(uri, "r")
+            ?: error("Content provider returned no file descriptor")
+        try {
+            OpenVlcMedia(Media(libVlc, descriptor), descriptor)
+        } catch (error: Throwable) {
+            descriptor.close()
+            throw error
+        }
+    } else {
+        OpenVlcMedia(Media(libVlc, normalizeLocalUri(uri)), null)
+    }
+}
+
+private fun normalizeLocalUri(uri: Uri): Uri = when (uri.scheme) {
+    null -> Uri.fromFile(java.io.File(uri.toString()))
+    else -> uri
+}
+
+private fun formatVideoTime(valueMs: Long): String {
     if (valueMs <= 0L) return "00:00"
     val totalSeconds = valueMs / 1_000L
     val hours = totalSeconds / 3_600L
