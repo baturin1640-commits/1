@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Usb
 import androidx.compose.material.icons.rounded.VideoLibrary
@@ -42,10 +43,12 @@ import androidx.compose.ui.unit.sp
 fun DashboardHomeScreen(
     state: LibraryUiState,
     favorites: FavoritesState,
+    playlists: List<AudioPlaylist>,
     onAddSource: () -> Unit,
     onRefresh: () -> Unit,
     onOpenFolder: (MediaFolder) -> Unit,
     onPlay: (MediaFile) -> Unit,
+    onPlayPlaylist: (List<MediaFile>) -> Unit,
     onToggleFolderFavorite: (MediaFolder) -> Unit,
     onToggleFileFavorite: (MediaFile) -> Unit,
 ) {
@@ -83,11 +86,7 @@ fun DashboardHomeScreen(
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(Modifier.width(7.dp))
-                    Text(
-                        source?.name ?: "Накопитель не выбран",
-                        color = AutoMuted,
-                        fontSize = 14.sp,
-                    )
+                    Text(source.safeDisplayName(), color = AutoMuted, fontSize = 14.sp)
                 }
             }
             Spacer(Modifier.weight(1f))
@@ -117,16 +116,8 @@ fun DashboardHomeScreen(
 
             else -> LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(15.dp),
             ) {
-                item {
-                    DashboardSummaryCard(
-                        videoCount = state.videoFiles.size,
-                        audioCount = state.audioFiles.size,
-                        connected = source?.connected == true,
-                    )
-                }
-
                 item {
                     DashboardSectionHeader(
                         title = "Видео",
@@ -183,11 +174,36 @@ fun DashboardHomeScreen(
                     }
                 }
 
+                if (playlists.isNotEmpty()) {
+                    item {
+                        DashboardSectionHeader(
+                            title = "Плейлисты",
+                            subtitle = "Созданные в музыкальном плеере",
+                            icon = Icons.Rounded.QueueMusic,
+                            accent = AutoPink,
+                        )
+                    }
+                    item {
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            items(playlists, key = AudioPlaylist::id) { playlist ->
+                                val files = playlist.trackUris.mapNotNull { uri ->
+                                    state.audioFiles.firstOrNull { it.uriString == uri }
+                                }
+                                DashboardPlaylistCard(
+                                    playlist = playlist,
+                                    playableCount = files.size,
+                                    onPlay = { if (files.isNotEmpty()) onPlayPlaylist(files) },
+                                )
+                            }
+                        }
+                    }
+                }
+
                 if (favoriteFiles.isNotEmpty()) {
                     item {
                         DashboardSectionHeader(
                             title = "Избранное",
-                            subtitle = "Быстрый доступ к сохранённым файлам",
+                            subtitle = "Быстрый доступ к отмеченным файлам",
                             icon = Icons.Rounded.PlayArrow,
                             accent = AutoPink,
                         )
@@ -207,60 +223,11 @@ fun DashboardHomeScreen(
                 }
 
                 state.error?.let { message ->
-                    item {
-                        Text(message, color = Color(0xFFFF9AAA), fontSize = 14.sp)
-                    }
+                    item { Text(message, color = Color(0xFFFF9AAA), fontSize = 14.sp) }
                 }
 
                 item { Spacer(Modifier.height(10.dp)) }
             }
-        }
-    }
-}
-
-@Composable
-private fun DashboardSummaryCard(
-    videoCount: Int,
-    audioCount: Int,
-    connected: Boolean,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                Brush.horizontalGradient(
-                    listOf(Color(0xFF15253A), Color(0xFF21133E), Color(0xFF26102F))
-                ),
-                RoundedCornerShape(24.dp),
-            )
-            .padding(horizontal = 22.dp, vertical = 18.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                if (connected) "Медиатека готова" else "Накопитель недоступен",
-                color = if (connected) AutoGreen else AutoRed,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                "Видео $videoCount · Музыка $audioCount",
-                color = AutoMuted,
-                fontSize = 13.sp,
-            )
-        }
-        Box(
-            modifier = Modifier
-                .size(58.dp)
-                .background(AutoGreen.copy(alpha = 0.16f), RoundedCornerShape(18.dp)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                Icons.Rounded.Usb,
-                contentDescription = null,
-                tint = AutoGreen,
-                modifier = Modifier.size(32.dp),
-            )
         }
     }
 }
@@ -312,12 +279,7 @@ private fun DashboardFolderCard(
             .padding(15.dp),
     ) {
         Column(modifier = Modifier.align(Alignment.CenterStart)) {
-            Icon(
-                Icons.Rounded.Folder,
-                contentDescription = null,
-                tint = accent,
-                modifier = Modifier.size(50.dp),
-            )
+            Icon(Icons.Rounded.Folder, null, tint = accent, modifier = Modifier.size(50.dp))
             Spacer(Modifier.height(7.dp))
             Text(
                 folder.name,
@@ -338,6 +300,45 @@ private fun DashboardFolderCard(
 }
 
 @Composable
+private fun DashboardPlaylistCard(
+    playlist: AudioPlaylist,
+    playableCount: Int,
+    onPlay: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .width(230.dp)
+            .height(128.dp)
+            .headUnitPressable(
+                onClick = onPlay,
+                enabled = playableCount > 0,
+                shape = RoundedCornerShape(22.dp),
+            )
+            .background(
+                Brush.linearGradient(
+                    listOf(AutoPink.copy(alpha = 0.34f), AutoPurple.copy(alpha = 0.22f), AutoSurfaceHigh)
+                ),
+                RoundedCornerShape(22.dp),
+            )
+            .padding(15.dp),
+    ) {
+        Column(Modifier.align(Alignment.CenterStart)) {
+            Icon(Icons.Rounded.QueueMusic, null, tint = AutoPink, modifier = Modifier.size(44.dp))
+            Spacer(Modifier.height(6.dp))
+            Text(
+                playlist.name,
+                color = AutoText,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text("$playableCount треков", color = AutoMuted, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
 private fun DashboardEmptySection(message: String, accent: Color) {
     Row(
         modifier = Modifier
@@ -346,7 +347,7 @@ private fun DashboardEmptySection(message: String, accent: Color) {
             .padding(18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(Icons.Rounded.Folder, contentDescription = null, tint = accent, modifier = Modifier.size(38.dp))
+        Icon(Icons.Rounded.Folder, null, tint = accent, modifier = Modifier.size(38.dp))
         Spacer(Modifier.width(12.dp))
         Text(message, color = AutoMuted, fontSize = 15.sp)
     }
@@ -356,12 +357,7 @@ private fun DashboardEmptySection(message: String, accent: Color) {
 private fun EmptyDashboardSource(onAddSource: () -> Unit) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                Icons.Rounded.Usb,
-                contentDescription = null,
-                tint = AutoPurple,
-                modifier = Modifier.size(82.dp),
-            )
+            Icon(Icons.Rounded.Usb, null, tint = AutoPurple, modifier = Modifier.size(82.dp))
             Spacer(Modifier.height(14.dp))
             Text("Выберите накопитель", color = AutoText, fontSize = 23.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(14.dp))
