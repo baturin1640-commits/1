@@ -2,6 +2,7 @@ package com.autovideo.app
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,7 +34,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -61,8 +62,12 @@ fun CarSideNavigation(
             .padding(vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("V", color = AutoText, fontSize = 21.sp, fontWeight = FontWeight.Black)
-        Spacer(Modifier.size(3.dp))
+        Image(
+            painter = painterResource(R.drawable.ic_video_logo),
+            contentDescription = "Видео",
+            modifier = Modifier.size(38.dp),
+        )
+        Spacer(Modifier.size(2.dp))
         CarNavItem("Главная", Icons.Rounded.Home, RootSection.HOME, selected, onSelect)
         CarNavItem("Видео", Icons.Rounded.VideoLibrary, RootSection.VIDEO, selected, onSelect)
         CarNavItem(
