@@ -29,7 +29,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -42,8 +41,11 @@ fun StorageSettingsScreen(
 ) {
     val context = LocalContext.current
     val source = state.sources.firstOrNull()
+    val displayName = source.safeDisplayName()
+
     Column(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
             .background(Brush.linearGradient(listOf(AutoBackground, Color(0xFF100A20))))
             .padding(24.dp),
     ) {
@@ -83,7 +85,8 @@ fun StorageSettingsScreen(
         }
         Spacer(Modifier.size(24.dp))
         Row(
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
                 .background(AutoSurfaceHigh, RoundedCornerShape(22.dp))
                 .padding(22.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -97,12 +100,11 @@ fun StorageSettingsScreen(
             Spacer(Modifier.width(18.dp))
             Column {
                 Text(
-                    source?.name ?: "Накопитель не выбран",
+                    displayName,
                     color = AutoText,
                     fontSize = 22.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     when {
