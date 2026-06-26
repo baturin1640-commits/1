@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.autovideo.app
 
 import android.content.Context
@@ -51,10 +53,7 @@ fun Media3StreamScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     var loading by remember(stream.url) { mutableStateOf(true) }
     var error by remember(stream.url) { mutableStateOf<String?>(null) }
-
-    val player = remember(stream.url) {
-        buildOnlinePlayer(context.applicationContext, stream)
-    }
+    val player = remember(stream.url) { buildOnlinePlayer(context.applicationContext, stream) }
 
     DisposableEffect(player) {
         val listener = object : Player.Listener {
@@ -121,10 +120,7 @@ fun Media3StreamScreen(
         }
 
         if (loading) {
-            CircularProgressIndicator(
-                modifier = Modifier.align(Alignment.Center),
-                color = AutoPurple,
-            )
+            CircularProgressIndicator(Modifier.align(Alignment.Center), color = AutoPurple)
         }
 
         error?.let { message ->
