@@ -33,7 +33,25 @@ jobs:
           gradle-version: "8.13"
 
       - name: Build debug APK
-        run: gradle :app:assembleDebug --stacktrace
+        shell: bash
+        run: |
+          set +e
+          gradle :app:assembleDebug --stacktrace 2>&1 | tee android-build.log
+          status=${PIPESTATUS[0]}
+          echo "GRADLE_STATUS=$status" >> "$GITHUB_ENV"
+          exit 0
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Android-build-log
+          path: android-build.log
+          if-no-files-found: error
+
+      - name: Fail when Gradle failed
+        if: env.GRADLE_STATUS != '0'
+        run: exit 1
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
