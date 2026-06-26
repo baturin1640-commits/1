@@ -120,7 +120,7 @@ fun VideoAppRoot(
                         targetState = folderId ?: section.name,
                         animationSpec = tween(230),
                         label = "rootContent",
-                    ) {
+                    ) { _ ->
                         when {
                             folder != null -> FolderBrowserScreen(
                                 state = state,
