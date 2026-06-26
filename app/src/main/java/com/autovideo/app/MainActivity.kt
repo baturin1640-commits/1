@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -22,6 +23,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val state by viewModel.uiState.collectAsStateWithLifecycle()
+
             val folderPicker = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.OpenDocumentTree(),
             ) { uri ->
@@ -33,6 +35,21 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     viewModel.addSource(uri)
+                }
+            }
+
+            val permissionLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.RequestMultiplePermissions(),
+            ) {
+                viewModel.refresh()
+            }
+
+            LaunchedEffect(Unit) {
+                val missing = MediaPermissions.missingPermissions(this@MainActivity)
+                if (missing.isNotEmpty()) {
+                    permissionLauncher.launch(missing)
+                } else {
+                    viewModel.refresh()
                 }
             }
 
