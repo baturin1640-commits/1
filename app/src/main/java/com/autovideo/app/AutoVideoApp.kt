@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
-import android.os.Settings
+import android.provider.Settings as AndroidSettings
 import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
