@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Usb
@@ -113,7 +114,7 @@ fun AutoVideoApp(
                             title = "Все видео",
                             files = state.videoFiles,
                             loading = state.loading,
-                            emptyMessage = "Видео на подключённых носителях не найдено",
+                            emptyMessage = "Видео во внутренней памяти и на носителях не найдено",
                             onPlay = { playingFile = it },
                         )
 
@@ -121,7 +122,7 @@ fun AutoVideoApp(
                             title = "Аудио",
                             files = state.audioFiles,
                             loading = state.loading,
-                            emptyMessage = "Аудиофайлы на подключённых носителях не найдены",
+                            emptyMessage = "Аудиофайлы во внутренней памяти и на носителях не найдены",
                             onPlay = { playingFile = it },
                         )
 
@@ -172,7 +173,7 @@ private fun SideNavigation(
                     .background(if (connected) AutoGreen else Color(0xFF6B6478))
             )
             Spacer(Modifier.width(5.dp))
-            Text(if (connected) "USB" else "Нет", color = AutoMuted, fontSize = 10.sp)
+            Text(if (connected) "Медиа" else "Нет", color = AutoMuted, fontSize = 10.sp)
         }
     }
 }
@@ -218,8 +219,8 @@ private fun SourcesScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column {
-                Text("Носители", fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                Text("Подключайте флешки и внешние диски", color = AutoMuted)
+                Text("Источники медиа", fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                Text("Внутренняя память, папки, флешки и внешние диски", color = AutoMuted)
             }
             Spacer(Modifier.weight(1f))
             IconButton(onClick = onRefresh) {
@@ -232,7 +233,7 @@ private fun SourcesScreen(
             ) {
                 Icon(Icons.Rounded.Add, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Добавить носитель")
+                Text("Добавить папку или носитель")
             }
         }
 
@@ -253,7 +254,11 @@ private fun SourcesScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(
-                            Icons.Rounded.Usb,
+                            imageVector = if (source.uriString == INTERNAL_SOURCE_URI) {
+                                Icons.Rounded.PhoneAndroid
+                            } else {
+                                Icons.Rounded.Usb
+                            },
                             contentDescription = null,
                             tint = if (source.connected) AutoGreen else AutoMuted,
                             modifier = Modifier.size(32.dp),
@@ -262,13 +267,19 @@ private fun SourcesScreen(
                         Column {
                             Text(source.name, fontWeight = FontWeight.SemiBold, fontSize = 18.sp)
                             Text(
-                                if (source.connected) "Подключён и доступен" else "Носитель сейчас недоступен",
+                                if (source.connected) "Подключён и доступен" else "Источник сейчас недоступен",
                                 color = if (source.connected) AutoGreen else AutoMuted,
                             )
                         }
                         Spacer(Modifier.weight(1f))
-                        IconButton(onClick = { onRemoveSource(source.uriString) }) {
-                            Icon(Icons.Rounded.DeleteOutline, contentDescription = "Удалить", tint = AutoMuted)
+                        if (source.uriString != INTERNAL_SOURCE_URI) {
+                            IconButton(onClick = { onRemoveSource(source.uriString) }) {
+                                Icon(
+                                    Icons.Rounded.DeleteOutline,
+                                    contentDescription = "Удалить",
+                                    tint = AutoMuted,
+                                )
+                            }
                         }
                     }
                 }
@@ -287,13 +298,21 @@ private fun EmptySourcesCard(onAddSource: () -> Unit) {
             .padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(Icons.Rounded.Usb, contentDescription = null, tint = AutoPurple, modifier = Modifier.size(48.dp))
+        Icon(
+            Icons.Rounded.PhoneAndroid,
+            contentDescription = null,
+            tint = AutoPurple,
+            modifier = Modifier.size(48.dp),
+        )
         Spacer(Modifier.height(14.dp))
-        Text("Носитель ещё не выбран", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-        Text("Выберите корневую папку флешки или внешнего диска", color = AutoMuted)
+        Text("Медиафайлы пока не найдены", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            "Разрешите доступ к памяти или выберите отдельную папку, флешку либо диск",
+            color = AutoMuted,
+        )
         Spacer(Modifier.height(18.dp))
         Button(onClick = onAddSource, colors = ButtonDefaults.buttonColors(containerColor = AutoPurple)) {
-            Text("Выбрать носитель")
+            Text("Выбрать папку или носитель")
         }
     }
 }
