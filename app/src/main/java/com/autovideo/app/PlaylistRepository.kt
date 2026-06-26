@@ -49,7 +49,8 @@ class PlaylistRepository(private val resolver: ContentResolver) {
                     continue
                 }
                 if (code !in 200..299) throw IOException("Сервер вернул ошибку $code")
-                if (connection.contentLengthLong > MAX_BYTES) throw IOException("Плейлист слишком большой")
+                val length = connection.contentLength
+                if (length > MAX_BYTES) throw IOException("Плейлист слишком большой")
 
                 val text = connection.inputStream.use(::readLimitedUtf8)
                 return PlaylistParser.parse(text, currentUrl)
