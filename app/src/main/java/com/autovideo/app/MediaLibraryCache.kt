@@ -104,7 +104,7 @@ class MediaLibraryCache(context: Context) {
                     add(MediaFile(
                         uriString = uri,
                         name = name,
-                        mimeType = media.optString("mime").ifBlank { null },
+                        mimeType = media.optString("mime").takeIf(String::isNotBlank),
                         sizeBytes = media.optLong("size"),
                         isVideo = media.optBoolean("video", true),
                         folderName = media.optString("folder", "Медиа"),
