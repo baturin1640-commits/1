@@ -16,7 +16,7 @@ import kotlinx.coroutines.withContext
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val sourceStore = StorageSources(application)
-    private val selectedFolderScanner = MediaScanner(application)
+    private val selectedFolderScanner = SafMediaScanner(application)
     private val mediaStoreScanner = InternalMediaScanner(application)
     private val libraryCache = MediaLibraryCache(application)
     private val mutableState = MutableStateFlow(LibraryUiState(loading = true))
@@ -93,7 +93,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val result = withContext(Dispatchers.IO) {
                 val selected = sourceStore.selected()
                 val scanResult = if (selected != null) {
-                    runCatching { selectedFolderScanner.scan(listOf(selected)) }
+                    runCatching { selectedFolderScanner.scan(selected) }
                 } else {
                     runCatching {
                         mediaStoreScanner.scan(MediaPermissions.access(getApplication()))
@@ -145,7 +145,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun currentFingerprint(): String = sourceStore.selected()?.let {
-        "selected::$it"
+        "selected::$it::complete-scan-v1"
     } ?: MediaPermissions.access(getApplication<Application>()).let { access ->
         "internal::video=${access.video};audio=${access.audio}"
     }
