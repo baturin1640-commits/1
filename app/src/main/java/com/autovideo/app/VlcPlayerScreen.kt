@@ -80,14 +80,17 @@ fun VlcPlayerScreen(
     val audioManager = remember {
         context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
+    val extension = remember(file.name) {
+        file.name.substringAfterLast('.', "").lowercase()
+    }
+    val softwareDecode = extension == "mkv"
     val libVlc = remember(file.uriString) {
         LibVLC(
             context,
             arrayListOf(
                 "--audio-time-stretch",
-                "--avcodec-hw=any",
                 "--no-spdif",
-                "--file-caching=1200",
+                "--file-caching=900",
                 "--drop-late-frames",
                 "--skip-frames",
             ),
@@ -111,25 +114,36 @@ fun VlcPlayerScreen(
     var controlsVisible by remember(file.uriString) { mutableStateOf(true) }
     var feedback by remember(file.uriString) { mutableStateOf<String?>(null) }
     var errorMessage by remember(file.uriString) { mutableStateOf<String?>(null) }
-    var sliderValue by remember(file.uriString) { mutableFloatStateOf(0f) }
+    var sliderFraction by remember(file.uriString) { mutableFloatStateOf(0f) }
     var scrubbing by remember(file.uriString) { mutableStateOf(false) }
     var dragStartPosition by remember(file.uriString) { mutableLongStateOf(0L) }
     var dragDistancePx by remember(file.uriString) { mutableFloatStateOf(0f) }
+    var pendingSeekMs by remember(file.uriString) { mutableLongStateOf(0L) }
     var resumeAfterSeek by remember(file.uriString) { mutableStateOf(false) }
     var audioTrackConfigured by remember(file.uriString) { mutableStateOf(false) }
 
     fun currentDuration(): Long = player.length.coerceAtLeast(0L)
+
+    fun updateSlider(position: Long, duration: Long) {
+        sliderFraction = if (duration > 0L) {
+            (position.toDouble() / duration.toDouble()).toFloat().coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+    }
 
     fun saveProgress() {
         playbackStore.save(file, player.time.coerceAtLeast(0L), currentDuration())
     }
 
     fun seekTo(targetMs: Long, message: String? = null) {
-        val maximum = currentDuration().takeIf { it > 0L } ?: Long.MAX_VALUE
+        val maximum = currentDuration()
+        if (maximum <= 0L) return
         val target = targetMs.coerceIn(0L, maximum)
         player.time = target
         positionMs = target
-        sliderValue = target.toFloat()
+        pendingSeekMs = target
+        updateSlider(target, maximum)
         feedback = message
         controlsVisible = true
     }
@@ -167,6 +181,7 @@ fun VlcPlayerScreen(
             when (event.type) {
                 MediaPlayer.Event.Playing -> {
                     isPlaying = true
+                    errorMessage = null
                     player.setVolume(100)
                     if (!audioTrackConfigured) {
                         player.setAudioDigitalOutputEnabled(false)
@@ -190,7 +205,11 @@ fun VlcPlayerScreen(
                 }
 
                 MediaPlayer.Event.EncounteredError -> {
-                    errorMessage = "Не удалось воспроизвести файл или его аудиодорожку"
+                    errorMessage = if (extension == "mkv") {
+                        "MKV не удалось декодировать. Проверьте, не повреждён ли файл и поддерживается ли видеокодек."
+                    } else {
+                        "Не удалось воспроизвести файл или его аудиодорожку"
+                    }
                     controlsVisible = true
                 }
             }
@@ -225,10 +244,11 @@ fun VlcPlayerScreen(
         player.setVolume(100)
 
         val media = Media(libVlc, file.uri).apply {
-            setHWDecoderEnabled(true, false)
+            setHWDecoderEnabled(!softwareDecode, false)
+            if (softwareDecode) addOption(":avcodec-hw=none")
             addOption(":no-spdif")
             addOption(":audio-track=-1")
-            addOption(":file-caching=1200")
+            addOption(":file-caching=900")
         }
         player.media = media
         media.release()
@@ -236,22 +256,30 @@ fun VlcPlayerScreen(
 
         val resumeAt = playbackStore.position(file)
         if (resumeAt > 0L) {
-            for (attempt in 0 until 30) {
-                delay(100L)
-                if (player.length > 0L) {
-                    player.time = resumeAt
-                    positionMs = resumeAt
-                    sliderValue = resumeAt.toFloat()
+            for (attempt in 0 until 40) {
+                delay(75L)
+                val length = currentDuration()
+                if (length > 0L) {
+                    val target = resumeAt.coerceIn(0L, length)
+                    player.time = target
+                    positionMs = target
+                    pendingSeekMs = target
+                    updateSlider(target, length)
                     break
                 }
             }
         }
 
         while (isActive) {
-            positionMs = player.time.coerceAtLeast(0L)
-            durationMs = currentDuration()
+            val liveDuration = currentDuration()
+            val livePosition = player.time.coerceAtLeast(0L)
+            durationMs = liveDuration
             isPlaying = player.isPlaying
-            if (!scrubbing) sliderValue = positionMs.toFloat()
+            if (!scrubbing) {
+                positionMs = livePosition
+                pendingSeekMs = livePosition
+                updateSlider(livePosition, liveDuration)
+            }
             delay(250L)
         }
     }
@@ -295,6 +323,7 @@ fun VlcPlayerScreen(
                 detectHorizontalDragGestures(
                     onDragStart = {
                         dragStartPosition = player.time.coerceAtLeast(0L)
+                        pendingSeekMs = dragStartPosition
                         dragDistancePx = 0f
                         resumeAfterSeek = player.isPlaying
                         if (resumeAfterSeek) player.pause()
@@ -308,14 +337,15 @@ fun VlcPlayerScreen(
                         if (maximum > 0L && size.width > 0) {
                             val delta = (dragDistancePx / size.width.toFloat() * maximum).toLong()
                             val target = (dragStartPosition + delta).coerceIn(0L, maximum)
+                            pendingSeekMs = target
                             positionMs = target
-                            sliderValue = target.toFloat()
+                            updateSlider(target, maximum)
                             feedback = (if (delta >= 0L) "+" else "−") +
                                 formatVlcTime(abs(delta)) + " · " + formatVlcTime(target)
                         }
                     },
                     onDragEnd = {
-                        seekTo(sliderValue.toLong())
+                        seekTo(pendingSeekMs)
                         scrubbing = false
                         if (resumeAfterSeek) player.play()
                     },
@@ -349,9 +379,7 @@ fun VlcPlayerScreen(
                         player.attachViews(layout, null, true, false)
                     }
                 },
-                update = { layout ->
-                    videoLayout = layout
-                },
+                update = { layout -> videoLayout = layout },
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
@@ -363,7 +391,7 @@ fun VlcPlayerScreen(
                     modifier = Modifier
                         .size(180.dp)
                         .clip(CircleShape)
-                        .background(Brush.linearGradient(listOf(Color(0xFF552184), Color(0xFF172B55)))),
+                        .background(Brush.linearGradient(listOf(AutoPink, AutoPurple, AutoBlue))),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -411,8 +439,8 @@ fun VlcPlayerScreen(
                         saveProgress()
                         onBack()
                     },
-                    size = 64.dp,
-                    iconSize = 34.dp,
+                    size = 66.dp,
+                    iconSize = 35.dp,
                     backgroundColor = Color(0x99000000),
                 )
                 Spacer(Modifier.width(14.dp))
@@ -425,7 +453,11 @@ fun VlcPlayerScreen(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Text(file.sourceName, color = Color(0xFFB6B0C3), fontSize = 13.sp)
+                    Text(
+                        "${file.sourceName}${if (softwareDecode) " · MKV software" else ""}",
+                        color = Color(0xFFB6B0C3),
+                        fontSize = 13.sp,
+                    )
                 }
                 AppClock(compact = true)
             }
@@ -448,26 +480,29 @@ fun VlcPlayerScreen(
                     Spacer(Modifier.height(8.dp))
                 }
 
-                val maximum = durationMs.coerceAtLeast(1L).toFloat()
                 Slider(
-                    value = sliderValue.coerceIn(0f, maximum),
-                    onValueChange = {
+                    value = sliderFraction.coerceIn(0f, 1f),
+                    onValueChange = { fraction ->
+                        val maximum = durationMs
+                        if (maximum <= 0L) return@Slider
                         if (!scrubbing) {
                             resumeAfterSeek = player.isPlaying
                             if (resumeAfterSeek) player.pause()
                         }
                         scrubbing = true
-                        sliderValue = it
-                        positionMs = it.toLong()
+                        sliderFraction = fraction.coerceIn(0f, 1f)
+                        pendingSeekMs = (maximum.toDouble() * sliderFraction.toDouble()).toLong()
+                        positionMs = pendingSeekMs
                     },
                     onValueChangeFinished = {
-                        seekTo(sliderValue.toLong())
+                        seekTo(pendingSeekMs)
                         scrubbing = false
                         if (resumeAfterSeek) player.play()
                     },
-                    valueRange = 0f..maximum,
+                    valueRange = 0f..1f,
+                    enabled = durationMs > 0L,
                     colors = SliderDefaults.colors(
-                        thumbColor = AutoPurple,
+                        thumbColor = AutoPink,
                         activeTrackColor = AutoPurple,
                         inactiveTrackColor = Color(0xFF4B4653),
                     ),
@@ -488,8 +523,8 @@ fun VlcPlayerScreen(
                             Icons.Rounded.SkipPrevious,
                             "Предыдущий файл",
                             onClick = { switchTo(previousFile) },
-                            size = 68.dp,
-                            iconSize = 38.dp,
+                            size = 70.dp,
+                            iconSize = 39.dp,
                             backgroundColor = Color(0xA5171320),
                             enabled = previousFile != null,
                         )
@@ -497,32 +532,32 @@ fun VlcPlayerScreen(
                             Icons.Rounded.Replay10,
                             "Назад на 10 секунд",
                             onClick = { seekBy(-10_000L) },
-                            size = 68.dp,
-                            iconSize = 38.dp,
+                            size = 70.dp,
+                            iconSize = 39.dp,
                             backgroundColor = Color(0xA5171320),
                         )
                         HeadUnitIconButton(
                             if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                             if (isPlaying) "Пауза" else "Воспроизвести",
                             onClick = ::togglePlayback,
-                            size = 82.dp,
-                            iconSize = 46.dp,
+                            size = 84.dp,
+                            iconSize = 48.dp,
                             backgroundColor = AutoPurple,
                         )
                         HeadUnitIconButton(
                             Icons.Rounded.Forward10,
                             "Вперёд на 10 секунд",
                             onClick = { seekBy(10_000L) },
-                            size = 68.dp,
-                            iconSize = 38.dp,
+                            size = 70.dp,
+                            iconSize = 39.dp,
                             backgroundColor = Color(0xA5171320),
                         )
                         HeadUnitIconButton(
                             Icons.Rounded.SkipNext,
                             "Следующий файл",
                             onClick = { switchTo(nextFile) },
-                            size = 68.dp,
-                            iconSize = 38.dp,
+                            size = 70.dp,
+                            iconSize = 39.dp,
                             backgroundColor = Color(0xA5171320),
                             enabled = nextFile != null,
                         )

@@ -33,8 +33,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -46,12 +44,15 @@ import androidx.compose.material.icons.rounded.PhoneAndroid
 import androidx.compose.material.icons.rounded.PlayCircle
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.Usb
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -60,6 +61,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -67,6 +69,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 enum class AppSection {
     HOME,
@@ -85,93 +88,120 @@ fun AutoVideoApp(
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val playbackStore = remember { PlaybackStore(context.applicationContext) }
-    var section by remember { mutableStateOf(AppSection.HOME) }
-    var selectedFolder by remember { mutableStateOf<MediaFolder?>(null) }
-    var playingFile by remember { mutableStateOf<MediaFile?>(null) }
-    var playingQueue by remember { mutableStateOf<List<MediaFile>>(emptyList()) }
-    var lastExitBackMs by remember { mutableLongStateOf(0L) }
+    val favoritesStore = remember { FavoritesStore(context.applicationContext) }
+    val favorites by favoritesStore.state.collectAsStateWithLifecycle()
+    val soundPlayer = remember { UiSoundPlayer(context.applicationContext) }
 
-    val latestVideo = playbackStore.latestVideo(state.videoFiles)
-
-    fun startPlayback(file: MediaFile, queue: List<MediaFile>) {
-        val normalized = queue.distinctBy(MediaFile::uriString)
-        playingQueue = if (normalized.any { it.uriString == file.uriString }) normalized else listOf(file)
-        playingFile = file
+    DisposableEffect(soundPlayer) {
+        onDispose { soundPlayer.release() }
     }
 
-    BackHandler(enabled = true) {
-        when {
-            playingFile != null -> playingFile = null
-            selectedFolder != null -> selectedFolder = null
-            section != AppSection.HOME -> section = AppSection.HOME
-            else -> {
-                val now = SystemClock.elapsedRealtime()
-                if (now - lastExitBackMs <= 2_000L) {
-                    activity?.finish()
-                } else {
-                    lastExitBackMs = now
-                    Toast.makeText(
-                        context,
-                        "Проведите назад ещё раз, чтобы закрыть приложение",
-                        Toast.LENGTH_SHORT,
-                    ).show()
+    CompositionLocalProvider(LocalUiSoundPlayer provides soundPlayer) {
+        var section by remember { mutableStateOf(AppSection.HOME) }
+        var selectedFolder by remember { mutableStateOf<MediaFolder?>(null) }
+        var playingFile by remember { mutableStateOf<MediaFile?>(null) }
+        var playingQueue by remember { mutableStateOf<List<MediaFile>>(emptyList()) }
+        var lastExitBackMs by remember { mutableLongStateOf(0L) }
+
+        val latestVideo = playbackStore.latestVideo(state.videoFiles)
+
+        fun startPlayback(file: MediaFile, queue: List<MediaFile>) {
+            val normalized = queue.distinctBy(MediaFile::uriString)
+            playingQueue = if (normalized.any { it.uriString == file.uriString }) normalized else listOf(file)
+            playingFile = file
+        }
+
+        fun closeCurrentFolderLevel() {
+            val current = selectedFolder ?: return
+            selectedFolder = current.parentId?.let { parentId ->
+                state.folders.firstOrNull { it.id == parentId }
+            }
+        }
+
+        BackHandler(enabled = true) {
+            when {
+                playingFile != null -> playingFile = null
+                selectedFolder != null -> closeCurrentFolderLevel()
+                section != AppSection.HOME -> section = AppSection.HOME
+                else -> {
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - lastExitBackMs <= 2_000L) {
+                        activity?.finish()
+                    } else {
+                        lastExitBackMs = now
+                        Toast.makeText(
+                            context,
+                            "Проведите назад ещё раз, чтобы закрыть приложение",
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                    }
                 }
             }
         }
-    }
 
-    val destination = when {
-        playingFile != null -> "player:${playingFile?.uriString}"
-        selectedFolder != null -> "folder:${selectedFolder?.id}"
-        else -> "library"
-    }
+        val destination = when {
+            playingFile != null -> "player:${playingFile?.uriString}"
+            selectedFolder != null -> "folder:${selectedFolder?.id}"
+            else -> "library"
+        }
 
-    Box(modifier = Modifier.fillMaxSize().background(AutoBackground)) {
-        AnimatedContent(
-            targetState = destination,
-            transitionSpec = {
-                val enter = slideInHorizontally(
-                    animationSpec = tween(380, easing = FastOutSlowInEasing),
-                    initialOffsetX = { it / 10 },
-                ) + fadeIn(tween(300))
-                val exit = slideOutHorizontally(
-                    animationSpec = tween(300, easing = FastOutSlowInEasing),
-                    targetOffsetX = { -it / 14 },
-                ) + fadeOut(tween(220))
-                enter.togetherWith(exit)
-            },
-            label = "mainPageTransition",
-        ) { target ->
-            when {
-                target.startsWith("player:") && playingFile != null -> PlayerScreen(
-                    file = checkNotNull(playingFile),
-                    queue = playingQueue,
-                    playbackStore = playbackStore,
-                    onSelectFile = { playingFile = it },
-                    onBack = { playingFile = null },
-                )
+        Box(modifier = Modifier.fillMaxSize().background(AutoBackground)) {
+            AnimatedContent(
+                targetState = destination,
+                transitionSpec = {
+                    val enter = slideInHorizontally(
+                        animationSpec = tween(380, easing = FastOutSlowInEasing),
+                        initialOffsetX = { it / 11 },
+                    ) + fadeIn(tween(300))
+                    val exit = slideOutHorizontally(
+                        animationSpec = tween(300, easing = FastOutSlowInEasing),
+                        targetOffsetX = { -it / 14 },
+                    ) + fadeOut(tween(220))
+                    enter.togetherWith(exit)
+                },
+                label = "mainPageTransition",
+            ) { target ->
+                when {
+                    target.startsWith("player:") && playingFile != null -> VlcPlayerScreen(
+                        file = checkNotNull(playingFile),
+                        queue = playingQueue,
+                        playbackStore = playbackStore,
+                        onSelectFile = { playingFile = it },
+                        onBack = { playingFile = null },
+                    )
 
-                target.startsWith("folder:") && selectedFolder != null -> FolderBrowserScreen(
-                    folder = checkNotNull(selectedFolder),
-                    onBack = { selectedFolder = null },
-                    onPlay = { file -> startPlayback(file, checkNotNull(selectedFolder).files) },
-                )
+                    target.startsWith("folder:") && selectedFolder != null -> FolderBrowserScreen(
+                        state = state,
+                        folder = checkNotNull(selectedFolder),
+                        favorites = favorites,
+                        onOpenFolder = { selectedFolder = it },
+                        onBack = ::closeCurrentFolderLevel,
+                        onPlay = { file ->
+                            startPlayback(file, state.filesInTree(checkNotNull(selectedFolder)))
+                        },
+                        onToggleFolderFavorite = favoritesStore::toggle,
+                        onToggleFileFavorite = favoritesStore::toggle,
+                    )
 
-                else -> MainLibraryShell(
-                    state = state,
-                    section = section,
-                    playbackStore = playbackStore,
-                    latestVideo = latestVideo,
-                    onSelectSection = { section = it },
-                    onResumeLatest = {
-                        latestVideo?.let { startPlayback(it, state.videoFiles) }
-                    },
-                    onAddSource = onAddSource,
-                    onRefresh = onRefresh,
-                    onRemoveSource = onRemoveSource,
-                    onOpenFolder = { selectedFolder = it },
-                    onPlay = { file, queue -> startPlayback(file, queue) },
-                )
+                    else -> MainLibraryShell(
+                        state = state,
+                        section = section,
+                        playbackStore = playbackStore,
+                        favorites = favorites,
+                        latestVideo = latestVideo,
+                        onSelectSection = { section = it },
+                        onResumeLatest = {
+                            latestVideo?.let { startPlayback(it, state.videoFiles) }
+                        },
+                        onAddSource = onAddSource,
+                        onRefresh = onRefresh,
+                        onRemoveSource = onRemoveSource,
+                        onOpenFolder = { selectedFolder = it },
+                        onPlay = { file, queue -> startPlayback(file, queue) },
+                        onToggleFolderFavorite = favoritesStore::toggle,
+                        onToggleFileFavorite = favoritesStore::toggle,
+                    )
+                }
             }
         }
     }
@@ -182,6 +212,7 @@ private fun MainLibraryShell(
     state: LibraryUiState,
     section: AppSection,
     playbackStore: PlaybackStore,
+    favorites: FavoritesState,
     latestVideo: MediaFile?,
     onSelectSection: (AppSection) -> Unit,
     onResumeLatest: () -> Unit,
@@ -190,6 +221,8 @@ private fun MainLibraryShell(
     onRemoveSource: (String) -> Unit,
     onOpenFolder: (MediaFolder) -> Unit,
     onPlay: (MediaFile, List<MediaFile>) -> Unit,
+    onToggleFolderFavorite: (MediaFolder) -> Unit,
+    onToggleFileFavorite: (MediaFile) -> Unit,
 ) {
     Row(modifier = Modifier.fillMaxSize().background(AutoBackground)) {
         SideNavigation(
@@ -219,23 +252,30 @@ private fun MainLibraryShell(
                 when (current) {
                     AppSection.HOME -> HomeScreen(
                         state = state,
+                        favorites = favorites,
                         onAddSource = onAddSource,
                         onRefresh = onRefresh,
                         onOpenFolder = onOpenFolder,
+                        onPlay = { onPlay(it, if (it.isVideo) state.videoFiles else state.audioFiles) },
+                        onToggleFolderFavorite = onToggleFolderFavorite,
+                        onToggleFileFavorite = onToggleFileFavorite,
                     )
 
                     AppSection.VIDEO -> VideoFoldersScreen(
-                        folders = state.videoFolders,
-                        loading = state.loading,
+                        state = state,
                         playbackStore = playbackStore,
+                        favorites = favorites,
                         onOpenFolder = onOpenFolder,
-                        onPlay = { file -> onPlay(file, state.videoFiles) },
+                        onPlay = { onPlay(it, state.videoFiles) },
+                        onToggleFolderFavorite = onToggleFolderFavorite,
+                        onToggleFileFavorite = onToggleFileFavorite,
                     )
 
                     AppSection.AUDIO -> AudioFoldersScreen(
-                        folders = state.audioFolders,
-                        loading = state.loading,
+                        state = state,
+                        favorites = favorites,
                         onOpenFolder = onOpenFolder,
+                        onToggleFolderFavorite = onToggleFolderFavorite,
                     )
 
                     AppSection.SETTINGS -> SourcesScreen(
@@ -259,14 +299,18 @@ private fun SideNavigation(
 ) {
     Column(
         modifier = Modifier
-            .width(124.dp)
+            .width(140.dp)
             .fillMaxHeight()
-            .background(Color(0xFF09080D))
-            .padding(vertical = 18.dp),
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFF080711), Color(0xFF100B21), Color(0xFF07101C))
+                )
+            )
+            .padding(vertical = 14.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text("AV", color = AutoText, fontSize = 22.sp, fontWeight = FontWeight.Black)
-        Spacer(Modifier.height(18.dp))
+        Text("V", color = AutoText, fontSize = 24.sp, fontWeight = FontWeight.Black)
+        Spacer(Modifier.height(8.dp))
         NavigationItem("Главная", Icons.Rounded.Home, AppSection.HOME, selected, onSelect)
         NavigationItem("Видео", Icons.Rounded.VideoLibrary, AppSection.VIDEO, selected, onSelect)
         NavigationItem("Музыка", Icons.Rounded.Audiotrack, AppSection.AUDIO, selected, onSelect)
@@ -276,14 +320,14 @@ private fun SideNavigation(
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             HeadUnitIconButton(
                 icon = Icons.Rounded.PlayCircle,
-                contentDescription = "Продолжить просмотр",
+                contentDescription = "Продолжить с места остановки",
                 onClick = onResumeLatest,
                 enabled = latestVideo != null,
-                size = 72.dp,
-                iconSize = 42.dp,
+                size = 82.dp,
+                iconSize = 48.dp,
                 backgroundColor = if (latestVideo != null) AutoPurple else AutoSurfaceHigh,
             )
-            Spacer(Modifier.height(7.dp))
+            Spacer(Modifier.height(6.dp))
             Text(
                 text = if (latestVideo != null) "Продолжить" else "Нет истории",
                 color = if (latestVideo != null) AutoText else AutoMuted,
@@ -311,28 +355,35 @@ private fun NavigationItem(
     )
 
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 7.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
             modifier = Modifier
                 .scale(scale)
-                .size(74.dp)
+                .size(82.dp)
                 .headUnitPressable(
                     onClick = { onSelect(section) },
-                    shape = RoundedCornerShape(22.dp),
+                    shape = RoundedCornerShape(24.dp),
                 )
-                .background(if (active) AutoPurple else AutoSurfaceHigh),
+                .background(
+                    if (active) {
+                        Brush.linearGradient(listOf(AutoPink, AutoPurple, AutoBlue))
+                    } else {
+                        Brush.linearGradient(listOf(AutoSurfaceHigh, AutoSurfaceHigh))
+                    },
+                    RoundedCornerShape(24.dp),
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 icon,
                 contentDescription = label,
                 tint = if (active) Color.White else AutoMuted,
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier.size(45.dp),
             )
         }
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(4.dp))
         Text(
             label,
             color = if (active) AutoText else AutoMuted,
@@ -350,6 +401,7 @@ private fun SourcesScreen(
     onRemoveSource: (String) -> Unit,
 ) {
     val context = LocalContext.current
+    val source = state.sources.firstOrNull()
     val settingsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult(),
     ) { onRefresh() }
@@ -363,18 +415,20 @@ private fun SourcesScreen(
         )
     }
 
-    Column(Modifier.fillMaxSize().padding(30.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column {
-                Text("Настройки", color = AutoText, fontSize = 34.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    "Память, накопители и системные разрешения",
-                    color = AutoMuted,
-                    fontSize = 15.sp,
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(
+                Brush.linearGradient(
+                    listOf(AutoBackground, Color(0xFF100A20), Color(0xFF0A1424))
                 )
+            )
+            .padding(24.dp)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column {
+                Text("Настройки", color = AutoText, fontSize = 31.sp, fontWeight = FontWeight.Bold)
+                Text("Один активный накопитель и системные разрешения", color = AutoMuted, fontSize = 14.sp)
             }
             Spacer(Modifier.weight(1f))
             HeadUnitIconButton(
@@ -384,24 +438,93 @@ private fun SourcesScreen(
                 size = 64.dp,
                 iconSize = 34.dp,
             )
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(10.dp))
+            AppClock(compact = true)
+        }
+
+        Spacer(Modifier.height(18.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            HeadUnitActionButton(
+                text = "Сменить накопитель",
+                icon = Icons.Rounded.Storage,
+                onClick = onAddSource,
+                backgroundColor = AutoPurple,
+            )
             HeadUnitActionButton(
                 text = "Все разрешения",
                 icon = Icons.Rounded.AdminPanelSettings,
                 onClick = ::openPermissions,
-                backgroundColor = Color(0xFF4D2A78),
+                backgroundColor = Color(0xFF3E295F),
             )
-            Spacer(Modifier.width(12.dp))
-            HeadUnitActionButton(
-                text = "Добавить носитель",
-                icon = Icons.Rounded.Add,
-                onClick = onAddSource,
-            )
-            Spacer(Modifier.width(12.dp))
-            AppClock()
+            if (source != null && source.uriString != INTERNAL_SOURCE_URI) {
+                HeadUnitActionButton(
+                    text = "Внутренняя память",
+                    icon = Icons.Rounded.PhoneAndroid,
+                    onClick = { onRemoveSource(source.uriString) },
+                    backgroundColor = Color(0xFF1B4560),
+                )
+            }
         }
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(22.dp))
+        Text("Активный накопитель", color = AutoText, fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(10.dp))
+
+        when {
+            state.loading && source == null -> CircularProgressIndicator(color = AutoPurple)
+            source == null -> EmptySourceCard(onAddSource)
+            else -> Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        Brush.linearGradient(
+                            listOf(AutoSurfaceBright, AutoSurfaceHigh, Color(0xFF13243B))
+                        ),
+                        RoundedCornerShape(22.dp),
+                    )
+                    .padding(22.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = if (source.uriString == INTERNAL_SOURCE_URI) {
+                        Icons.Rounded.PhoneAndroid
+                    } else {
+                        Icons.Rounded.Usb
+                    },
+                    contentDescription = null,
+                    tint = if (source.connected) AutoGreen else AutoMuted,
+                    modifier = Modifier.size(52.dp),
+                )
+                Spacer(Modifier.width(18.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        source.name,
+                        color = AutoText,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 22.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        if (source.connected) "Подключён · найдено ${state.videoFiles.size} видео и ${state.audioFiles.size} аудио" else "Накопитель недоступен",
+                        color = if (source.connected) AutoGreen else AutoMuted,
+                        fontSize = 14.sp,
+                    )
+                }
+                if (source.uriString != INTERNAL_SOURCE_URI) {
+                    HeadUnitIconButton(
+                        icon = Icons.Rounded.DeleteOutline,
+                        contentDescription = "Отключить накопитель",
+                        onClick = { onRemoveSource(source.uriString) },
+                        size = 64.dp,
+                        iconSize = 34.dp,
+                        tint = AutoMuted,
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(18.dp))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -412,112 +535,42 @@ private fun SourcesScreen(
             Icon(
                 Icons.Rounded.AdminPanelSettings,
                 contentDescription = null,
-                tint = AutoPurple,
+                tint = AutoPink,
                 modifier = Modifier.size(38.dp),
             )
             Spacer(Modifier.width(14.dp))
             Column {
+                Text("Доступ к файлам", color = AutoText, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Выдать все разрешения",
-                    color = AutoText,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Text(
-                    "Откройте системные настройки и разрешите файлы, видео, аудио и управление памятью.",
+                    "Разрешите видео, музыку и управление памятью. Для USB выберите корень самого накопителя.",
                     color = AutoMuted,
                     fontSize = 13.sp,
                 )
-            }
-        }
-
-        Spacer(Modifier.height(22.dp))
-        Text("Источники медиа", color = AutoText, fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(12.dp))
-
-        if (state.loading && state.sources.isEmpty()) {
-            CircularProgressIndicator(color = AutoPurple, modifier = Modifier.size(58.dp))
-        } else if (state.sources.isEmpty()) {
-            EmptySourcesCard(onAddSource)
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                items(state.sources, key = RemovableSource::uriString) { source ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(AutoSurfaceHigh, RoundedCornerShape(20.dp))
-                            .padding(20.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        val internal = source.uriString == INTERNAL_SOURCE_URI ||
-                            source.name.equals("Внутренняя память", ignoreCase = true)
-                        Icon(
-                            imageVector = if (internal) Icons.Rounded.PhoneAndroid else Icons.Rounded.Usb,
-                            contentDescription = null,
-                            tint = if (source.connected) AutoGreen else AutoMuted,
-                            modifier = Modifier.size(46.dp),
-                        )
-                        Spacer(Modifier.width(18.dp))
-                        Column {
-                            Text(
-                                source.name,
-                                color = AutoText,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 20.sp,
-                            )
-                            Text(
-                                if (source.connected) "Подключён и доступен" else "Источник недоступен",
-                                color = if (source.connected) AutoGreen else AutoMuted,
-                                fontSize = 14.sp,
-                            )
-                        }
-                        Spacer(Modifier.weight(1f))
-                        if (!internal && !source.uriString.startsWith("file:")) {
-                            HeadUnitIconButton(
-                                icon = Icons.Rounded.DeleteOutline,
-                                contentDescription = "Удалить",
-                                onClick = { onRemoveSource(source.uriString) },
-                                size = 62.dp,
-                                iconSize = 32.dp,
-                                tint = AutoMuted,
-                            )
-                        }
-                    }
-                }
             }
         }
     }
 }
 
 @Composable
-private fun EmptySourcesCard(onAddSource: () -> Unit) {
+private fun EmptySourceCard(onAddSource: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(AutoSurfaceHigh, RoundedCornerShape(22.dp))
-            .padding(32.dp),
+            .padding(30.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Icon(
-            Icons.Rounded.PhoneAndroid,
+            Icons.Rounded.Storage,
             contentDescription = null,
             tint = AutoPurple,
-            modifier = Modifier.size(76.dp),
+            modifier = Modifier.size(72.dp),
         )
+        Spacer(Modifier.height(14.dp))
+        Text("Накопитель не выбран", color = AutoText, fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(16.dp))
-        Text(
-            "Медиафайлы пока не найдены",
-            color = AutoText,
-            fontSize = 22.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Text(
-            "Разрешите доступ к памяти или выберите отдельную папку, флешку либо диск",
-            color = AutoMuted,
-        )
-        Spacer(Modifier.height(20.dp))
         HeadUnitActionButton(
-            text = "Выбрать папку или носитель",
+            text = "Выбрать накопитель",
             icon = Icons.Rounded.Add,
             onClick = onAddSource,
         )

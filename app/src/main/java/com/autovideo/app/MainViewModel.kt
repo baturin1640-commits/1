@@ -32,13 +32,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addSource(uri: Uri) {
-        sourceStore.add(uri)
+        sourceStore.select(uri)
+        libraryCache.clear()
+        mutableState.value = LibraryUiState(loading = true)
         refresh()
     }
 
     fun removeSource(uriString: String) {
-        if (uriString == INTERNAL_SOURCE_URI || uriString.startsWith("file:")) return
         sourceStore.remove(uriString)
+        libraryCache.clear()
+        mutableState.value = LibraryUiState(loading = true)
         refresh()
     }
 
@@ -50,16 +53,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val fingerprint = withContext(Dispatchers.IO) { currentFingerprint() }
             val cached = withContext(Dispatchers.IO) { libraryCache.load() }
+            val cacheMatches = cached != null &&
+                cached.fingerprint == fingerprint &&
+                cached.folders.isNotEmpty()
 
-            if (cached != null && cached.folders.isNotEmpty()) {
+            if (cacheMatches) {
                 mutableState.value = LibraryUiState(
                     loading = false,
-                    sources = cached.sources,
+                    sources = cached!!.sources,
                     folders = cached.folders,
                 )
                 val age = System.currentTimeMillis() - cached.savedAtMs
-                val stale = age > CACHE_MAX_AGE_MS || cached.fingerprint != fingerprint
-                if (stale) startScan(forceVisibleProgress = false)
+                if (age > CACHE_MAX_AGE_MS) startScan(forceVisibleProgress = false)
             } else {
                 startScan(forceVisibleProgress = true)
             }
@@ -71,7 +76,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             refreshRequestedWhileScanning = true
             return
         }
-
         currentScan = viewModelScope.launch {
             var showProgress = forceVisibleProgress
             do {
@@ -83,63 +87,39 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun performScan(showVisibleProgress: Boolean) {
-        if (showVisibleProgress) {
-            mutableState.value = mutableState.value.copy(loading = true, error = null)
-        } else {
-            mutableState.value = mutableState.value.copy(error = null)
-        }
+        mutableState.value = mutableState.value.copy(
+            loading = showVisibleProgress && mutableState.value.folders.isEmpty(),
+            error = null,
+        )
 
         try {
             val result = withContext(Dispatchers.IO) {
-                val selectedUris = sourceStore.all()
-                val selectedFoldersResult = if (selectedUris.isEmpty()) {
-                    Result.success(emptyScanResult())
+                val selected = sourceStore.selected()
+                val scanResult = if (selected != null) {
+                    runCatching { selectedFolderScanner.scan(listOf(selected)) }
                 } else {
-                    runCatching { selectedFolderScanner.scan(selectedUris) }
+                    runCatching {
+                        val indexed = mediaStoreScanner.scan(MediaPermissions.access(getApplication()))
+                        if (indexed.second.isNotEmpty()) indexed else fileSystemScanner.scan()
+                    }
                 }
-                val mediaStoreResult = runCatching {
-                    mediaStoreScanner.scan(MediaPermissions.access(getApplication()))
-                }
-                val fileSystemResult = runCatching { fileSystemScanner.scan() }
 
-                val selectedFolders = selectedFoldersResult.getOrDefault(emptyScanResult())
-                val mediaStore = mediaStoreResult.getOrDefault(emptyScanResult())
-                val fileSystem = fileSystemResult.getOrDefault(emptyScanResult())
-
-                val sources = deduplicateSources(
-                    fileSystem.first + mediaStore.first + selectedFolders.first,
-                ).sortedBy { it.name.lowercase(Locale.getDefault()) }
-
-                val folders = deduplicateFolders(
-                    fileSystem.second + mediaStore.second + selectedFolders.second,
-                ).sortedWith(
-                    compareBy<MediaFolder> {
-                        it.sourceName.lowercase(Locale.getDefault())
-                    }.thenBy {
-                        it.name.lowercase(Locale.getDefault())
-                    },
-                )
-
-                val errors = listOfNotNull(
-                    selectedFoldersResult.exceptionOrNull(),
-                    mediaStoreResult.exceptionOrNull(),
-                    fileSystemResult.exceptionOrNull(),
-                )
+                val data = scanResult.getOrDefault(emptyScanResult())
+                val sources = data.first.take(1)
+                val folders = data.second
+                    .distinctBy(MediaFolder::id)
+                    .map { it.copy(files = it.files.distinctBy(MediaFile::uriString)) }
+                    .sortedWith(
+                        compareBy<MediaFolder> { it.path.count { char -> char == '/' } }
+                            .thenBy { it.name.lowercase(Locale.getDefault()) }
+                    )
+                val error = scanResult.exceptionOrNull()?.message
                 val fingerprint = currentFingerprint()
 
-                if (folders.isNotEmpty() || errors.isEmpty()) {
+                if (folders.isNotEmpty() || error == null) {
                     libraryCache.save(sources, folders, fingerprint)
                 }
-
-                ScanResult(
-                    sources = sources,
-                    folders = folders,
-                    error = if (sources.isEmpty() && folders.isEmpty() && errors.isNotEmpty()) {
-                        errors.first().message ?: "Не удалось прочитать медиатеку"
-                    } else {
-                        null
-                    },
-                )
+                ScanResult(sources, folders, error)
             }
 
             val previous = mutableState.value
@@ -163,35 +143,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun currentFingerprint(): String {
-        val selected = sourceStore.all().joinToString("|") { it.toString() }
-        return "$selected::${fileSystemScanner.signature()}"
-    }
-
-    private fun deduplicateSources(sources: List<RemovableSource>): List<RemovableSource> {
-        val unique = linkedMapOf<String, RemovableSource>()
-        sources.forEach { source ->
-            val key = if (source.name.equals("Внутренняя память", ignoreCase = true)) {
-                "internal-storage"
-            } else {
-                source.uriString
-            }
-            val existing = unique[key]
-            if (existing == null || (!existing.connected && source.connected)) unique[key] = source
-        }
-        return unique.values.toList()
-    }
-
-    private fun deduplicateFolders(folders: List<MediaFolder>): List<MediaFolder> {
-        val unique = linkedMapOf<String, MediaFolder>()
-        folders.forEach { folder ->
-            val files = folder.files.distinctBy(MediaFile::uriString)
-            val key = files.joinToString("|") { it.uriString }
-                .ifBlank { "${folder.sourceName}:${folder.name}" }
-            unique.putIfAbsent(key, folder.copy(files = files))
-        }
-        return unique.values.toList()
-    }
+    private fun currentFingerprint(): String = sourceStore.selected()?.let {
+        "selected::$it"
+    } ?: "internal::${fileSystemScanner.signature()}"
 
     private fun emptyScanResult(): Pair<List<RemovableSource>, List<MediaFolder>> =
         emptyList<RemovableSource>() to emptyList()

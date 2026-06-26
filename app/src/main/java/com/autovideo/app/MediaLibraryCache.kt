@@ -18,7 +18,7 @@ class MediaLibraryCache(context: Context) {
     fun load(): CachedMediaLibrary? = runCatching {
         if (!file.isFile) return null
         val root = JSONObject(file.readText())
-        if (root.optInt("version") != 1) return null
+        if (root.optInt("version") != CACHE_VERSION) return null
         CachedMediaLibrary(
             sources = decodeSources(root.optJSONArray("sources")),
             folders = decodeFolders(root.optJSONArray("folders")),
@@ -30,7 +30,7 @@ class MediaLibraryCache(context: Context) {
     fun save(sources: List<RemovableSource>, folders: List<MediaFolder>, fingerprint: String) {
         runCatching {
             val root = JSONObject()
-                .put("version", 1)
+                .put("version", CACHE_VERSION)
                 .put("savedAtMs", System.currentTimeMillis())
                 .put("fingerprint", fingerprint)
                 .put("sources", encodeSources(sources))
@@ -76,6 +76,8 @@ class MediaLibraryCache(context: Context) {
                 .put("name", folder.name)
                 .put("source", folder.sourceName)
                 .put("sourceUri", folder.sourceUriString)
+                .put("path", folder.path)
+                .put("parentId", folder.parentId ?: JSONObject.NULL)
                 .put("files", files))
         }
     }
@@ -86,7 +88,7 @@ class MediaLibraryCache(context: Context) {
             val item = array.optJSONObject(index) ?: continue
             val uri = item.optString("uri")
             if (uri.isBlank()) continue
-            add(RemovableSource(uri, item.optString("name", "Носитель"), item.optBoolean("connected", true)))
+            add(RemovableSource(uri, item.optString("name", "Накопитель"), item.optBoolean("connected", true)))
         }
     }
 
@@ -94,7 +96,7 @@ class MediaLibraryCache(context: Context) {
         if (array == null) return@buildList
         for (index in 0 until array.length()) {
             val item = array.optJSONObject(index) ?: continue
-            val fileArray = item.optJSONArray("files") ?: continue
+            val fileArray = item.optJSONArray("files") ?: JSONArray()
             val files = buildList {
                 for (fileIndex in 0 until fileArray.length()) {
                     val media = fileArray.optJSONObject(fileIndex) ?: continue
@@ -112,14 +114,21 @@ class MediaLibraryCache(context: Context) {
                     ))
                 }
             }
-            if (files.isEmpty()) continue
+            val id = item.optString("id")
+            if (id.isBlank()) continue
             add(MediaFolder(
-                id = item.optString("id"),
+                id = id,
                 name = item.optString("name", "Медиа"),
                 sourceName = item.optString("source", "Память"),
                 sourceUriString = item.optString("sourceUri"),
+                path = item.optString("path"),
+                parentId = if (item.isNull("parentId")) null else item.optString("parentId").takeIf(String::isNotBlank),
                 files = files,
             ))
         }
+    }
+
+    private companion object {
+        const val CACHE_VERSION = 2
     }
 }

@@ -5,25 +5,29 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-val AutoBackground = Color(0xFF07070A)
-val AutoSurface = Color(0xFF101015)
-val AutoSurfaceHigh = Color(0xFF19191F)
-val AutoPurple = Color(0xFF8B5CF6)
-val AutoPink = Color(0xFFEC4899)
-val AutoBlue = Color(0xFF38BDF8)
-val AutoGreen = Color(0xFF34D399)
-val AutoText = Color(0xFFF8FAFC)
-val AutoMuted = Color(0xFFB1ADBA)
+val AutoBackground = Color(0xFF060611)
+val AutoSurface = Color(0xFF0E0D20)
+val AutoSurfaceHigh = Color(0xFF17152B)
+val AutoSurfaceBright = Color(0xFF221A42)
+val AutoPurple = Color(0xFF8B4DFF)
+val AutoPink = Color(0xFFFF3CB4)
+val AutoBlue = Color(0xFF5965FF)
+val AutoCyan = Color(0xFF2CC8F5)
+val AutoRed = Color(0xFFFF4F68)
+val AutoGreen = Color(0xFF43E0C0)
+val AutoText = Color(0xFFF9F8FF)
+val AutoMuted = Color(0xFFB5AFC7)
 
 private val AutoVideoColors = darkColorScheme(
     primary = AutoPurple,
     secondary = AutoPink,
-    tertiary = AutoBlue,
+    tertiary = AutoCyan,
     background = AutoBackground,
     surface = AutoSurface,
     surfaceVariant = AutoSurfaceHigh,
-    primaryContainer = Color(0xFF4A2B76),
-    secondaryContainer = Color(0xFF5A2342),
+    primaryContainer = Color(0xFF422474),
+    secondaryContainer = Color(0xFF65254D),
+    tertiaryContainer = Color(0xFF173F57),
     onPrimary = Color.White,
     onSecondary = Color.White,
     onTertiary = Color.White,
@@ -33,7 +37,7 @@ private val AutoVideoColors = darkColorScheme(
     onBackground = AutoText,
     onSurface = AutoText,
     onSurfaceVariant = AutoText,
-    outline = Color(0xFF4A4752),
+    outline = Color(0xFF51486D),
 )
 
 @Composable
