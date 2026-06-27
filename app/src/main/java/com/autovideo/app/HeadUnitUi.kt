@@ -39,7 +39,7 @@ import androidx.compose.ui.unit.sp
 fun Modifier.headUnitPressable(
     onClick: () -> Unit,
     enabled: Boolean = true,
-    shape: Shape = RoundedCornerShape(20.dp),
+    shape: Shape = RoundedCornerShape(24.dp),
     sound: UiSound = UiSound.BUTTON,
 ): Modifier {
     val interactionSource = remember { MutableInteractionSource() }
@@ -47,7 +47,7 @@ fun Modifier.headUnitPressable(
     var lastClickMs by remember { mutableLongStateOf(0L) }
     val pressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed && enabled) 0.95f else 1f,
+        targetValue = if (pressed && enabled) 0.94f else 1f,
         animationSpec = tween(
             durationMillis = if (pressed) 90 else 180,
             easing = FastOutSlowInEasing,
@@ -79,8 +79,8 @@ fun HeadUnitIconButton(
     contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    size: Dp = 72.dp,
-    iconSize: Dp = 39.dp,
+    size: Dp = 88.dp,
+    iconSize: Dp = 48.dp,
     backgroundColor: Color = AutoSurfaceHigh,
     tint: Color = Color.White,
     enabled: Boolean = true,
@@ -92,7 +92,7 @@ fun HeadUnitIconButton(
             .headUnitPressable(
                 onClick = onClick,
                 enabled = enabled,
-                shape = RoundedCornerShape(21.dp),
+                shape = RoundedCornerShape(26.dp),
                 sound = sound,
             )
             .background(if (enabled) backgroundColor else backgroundColor.copy(alpha = 0.45f)),
@@ -120,11 +120,11 @@ fun HeadUnitActionButton(
         modifier = modifier
             .headUnitPressable(
                 onClick = onClick,
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(24.dp),
                 sound = sound,
             )
             .background(backgroundColor)
-            .padding(horizontal = 22.dp, vertical = 16.dp),
+            .padding(horizontal = 30.dp, vertical = 21.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
@@ -132,14 +132,14 @@ fun HeadUnitActionButton(
             icon,
             contentDescription = null,
             tint = Color.White,
-            modifier = Modifier.size(30.dp),
+            modifier = Modifier.size(38.dp),
         )
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(15.dp))
         Text(
             text,
             color = Color.White,
-            fontSize = 16.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontSize = 21.sp,
+            fontWeight = FontWeight.Bold,
         )
     }
 }
