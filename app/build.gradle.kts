@@ -14,8 +14,8 @@ android {
         applicationId = "com.autovideo.app"
         minSdk = 23
         targetSdk = 36
-        versionCode = 12
-        versionName = "0.9.2"
+        versionCode = 13
+        versionName = "0.9.3"
 
         ndk {
             abiFilters += listOf("arm64-v8a")
@@ -76,6 +76,7 @@ dependencies {
 
     implementation("androidx.core:core-ktx:1.16.0")
     implementation("androidx.activity:activity-compose:1.10.1")
+    implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.1")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.1")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.9.1")
