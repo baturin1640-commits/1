@@ -23,7 +23,7 @@ fun openRutubeMiniBrowser(context: Context) {
     val customTab = CustomTabsIntent.Builder()
         .setDefaultColorSchemeParams(colorScheme)
         .setShowTitle(true)
-        .setUrlBarHidingEnabled()
+        .setUrlBarHidingEnabled(true)
         .setShareState(CustomTabsIntent.SHARE_STATE_OFF)
         .setStartAnimations(context, android.R.anim.fade_in, android.R.anim.fade_out)
         .setExitAnimations(context, android.R.anim.fade_in, android.R.anim.fade_out)
