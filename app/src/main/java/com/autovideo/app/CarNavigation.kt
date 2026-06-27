@@ -2,17 +2,21 @@ package com.autovideo.app
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Audiotrack
 import androidx.compose.material.icons.rounded.Favorite
@@ -34,7 +38,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -56,45 +60,65 @@ fun CarSideNavigation(
 ) {
     Column(
         modifier = Modifier
-            .width(172.dp)
+            .width(244.dp)
             .fillMaxHeight()
             .background(Brush.verticalGradient(listOf(Color(0xFF080711), Color(0xFF100B21))))
-            .padding(vertical = 5.dp),
+            .padding(horizontal = 10.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Image(
-            painter = painterResource(R.drawable.ic_video_logo),
-            contentDescription = "Видео",
-            modifier = Modifier.size(46.dp),
-        )
-        Spacer(Modifier.size(1.dp))
-        CarNavItem("Главная", Icons.Rounded.Home, RootSection.HOME, selected, onSelect)
-        CarNavItem("Видео", Icons.Rounded.VideoLibrary, RootSection.VIDEO, selected, onSelect)
-        CarNavItem(
-            label = "RUTUBE",
-            section = RootSection.RUTUBE,
-            selected = selected,
-            onSelect = onSelect,
-            customIcon = { RutubeLogoIcon(Modifier.size(44.dp)) },
-        )
-        CarNavItem("Музыка", Icons.Rounded.Audiotrack, RootSection.AUDIO, selected, onSelect)
-        CarNavItem("Избранное", Icons.Rounded.Favorite, RootSection.FAVORITES, selected, onSelect)
-        CarNavItem("Настройки", Icons.Rounded.Settings, RootSection.SETTINGS, selected, onSelect)
-        Spacer(Modifier.weight(1f))
-        HeadUnitIconButton(
-            icon = Icons.Rounded.PlayCircle,
-            contentDescription = "Продолжить просмотр",
-            onClick = onResumeLatest,
-            enabled = latestVideo != null,
-            size = 70.dp,
-            iconSize = 42.dp,
-            backgroundColor = if (latestVideo != null) AutoPurple else AutoSurfaceHigh,
-        )
-        Text(
-            if (latestVideo != null) "Продолжить" else "Нет истории",
-            color = AutoMuted,
-            fontSize = 12.sp,
-        )
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            CarNavItem("Главная", Icons.Rounded.Home, RootSection.HOME, selected, onSelect)
+            CarNavItem("Видео", Icons.Rounded.VideoLibrary, RootSection.VIDEO, selected, onSelect)
+            CarNavItem(
+                label = "RUTUBE",
+                section = RootSection.RUTUBE,
+                selected = selected,
+                onSelect = onSelect,
+                customIcon = { RutubeLogoIcon(Modifier.size(58.dp)) },
+            )
+            CarNavItem("Музыка", Icons.Rounded.Audiotrack, RootSection.AUDIO, selected, onSelect)
+            CarNavItem("Избранное", Icons.Rounded.Favorite, RootSection.FAVORITES, selected, onSelect)
+            CarNavItem("Настройки", Icons.Rounded.Settings, RootSection.SETTINGS, selected, onSelect)
+        }
+
+        Spacer(Modifier.height(10.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(92.dp)
+                .headUnitPressable(
+                    onClick = onResumeLatest,
+                    enabled = latestVideo != null,
+                    shape = RoundedCornerShape(28.dp),
+                )
+                .background(
+                    if (latestVideo != null) AutoPurple else AutoSurfaceHigh,
+                    RoundedCornerShape(28.dp),
+                )
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                Icons.Rounded.PlayCircle,
+                contentDescription = "Продолжить просмотр",
+                tint = if (latestVideo != null) Color.White else AutoMuted,
+                modifier = Modifier.size(54.dp),
+            )
+            Spacer(Modifier.width(12.dp))
+            Text(
+                if (latestVideo != null) "Продолжить" else "Нет истории",
+                color = if (latestVideo != null) Color.White else AutoMuted,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 2,
+            )
+        }
     }
 }
 
@@ -108,37 +132,45 @@ private fun CarNavItem(
     customIcon: (@Composable () -> Unit)? = null,
 ) {
     val active = section == selected
-    val scale by animateFloatAsState(if (active) 1.04f else 1f, label = "navScale")
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+    val scale by animateFloatAsState(if (active) 1.025f else 1f, label = "navScale")
+
+    Row(
+        modifier = Modifier
+            .scale(scale)
+            .fillMaxWidth()
+            .height(98.dp)
+            .headUnitPressable(
+                onClick = { onSelect(section) },
+                shape = RoundedCornerShape(28.dp),
+            )
+            .background(
+                if (active) Brush.linearGradient(listOf(AutoPink, AutoPurple, AutoBlue))
+                else Brush.linearGradient(listOf(AutoSurfaceHigh, AutoSurfaceHigh)),
+                RoundedCornerShape(28.dp),
+            )
+            .padding(horizontal = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            modifier = Modifier
-                .scale(scale)
-                .size(72.dp)
-                .headUnitPressable({ onSelect(section) }, shape = RoundedCornerShape(23.dp))
-                .background(
-                    if (active) Brush.linearGradient(listOf(AutoPink, AutoPurple, AutoBlue))
-                    else Brush.linearGradient(listOf(AutoSurfaceHigh, AutoSurfaceHigh)),
-                    RoundedCornerShape(23.dp),
-                ),
+            modifier = Modifier.size(62.dp),
             contentAlignment = Alignment.Center,
         ) {
             when {
                 customIcon != null -> customIcon()
                 icon != null -> Icon(
                     icon,
-                    label,
+                    contentDescription = label,
                     tint = if (active) Color.White else AutoMuted,
-                    modifier = Modifier.size(43.dp),
+                    modifier = Modifier.size(58.dp),
                 )
             }
         }
+        Spacer(Modifier.width(17.dp))
         Text(
             label,
-            color = if (active) AutoText else AutoMuted,
-            fontSize = 13.sp,
+            color = if (active) Color.White else AutoText,
+            fontSize = 19.sp,
+            fontWeight = FontWeight.Bold,
             maxLines = 1,
         )
     }
