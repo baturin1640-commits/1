@@ -1,7 +1,10 @@
 package com.autovideo.app
 
+import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -36,18 +39,28 @@ class MainActivity : ComponentActivity() {
             }
 
             val folderPicker = rememberLauncherForActivityResult(
-                contract = ActivityResultContracts.OpenDocumentTree(),
-            ) { uri ->
-                if (uri != null) {
-                    runCatching {
-                        contentResolver.takePersistableUriPermission(
-                            uri,
-                            Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                        )
-                    }.onSuccess {
-                        viewModel.addSource(uri)
-                    }
+                contract = ActivityResultContracts.StartActivityForResult(),
+            ) { result ->
+                if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
+                val data = result.data ?: return@rememberLauncherForActivityResult
+                val uri = data.data ?: return@rememberLauncherForActivityResult
+                val requestedFlags = data.flags and
+                    (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                val persistableFlags = if (requestedFlags == 0) {
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                } else {
+                    requestedFlags
                 }
+                runCatching {
+                    contentResolver.takePersistableUriPermission(uri, persistableFlags)
+                }.onFailure {
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Не удалось сохранить доступ к накопителю",
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+                viewModel.addSource(uri)
             }
 
             val permissionLauncher = rememberLauncherForActivityResult(
@@ -67,7 +80,37 @@ class MainActivity : ComponentActivity() {
                 AutoVideoTheme {
                     VideoAppRoot(
                         state = state,
-                        onAddSource = { folderPicker.launch(null) },
+                        onAddSource = {
+                            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                                addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                                addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION)
+                            }
+                            try {
+                                if (intent.resolveActivity(packageManager) == null) {
+                                    Toast.makeText(
+                                        this@MainActivity,
+                                        "На устройстве отсутствует системный выбор папки",
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                } else {
+                                    folderPicker.launch(intent)
+                                }
+                            } catch (_: ActivityNotFoundException) {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "Системный выбор накопителя недоступен",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            } catch (_: Throwable) {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    "Не удалось открыть выбор накопителя",
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                        },
                         onRefresh = viewModel::refresh,
                         onRemoveSource = viewModel::removeSource,
                     )
