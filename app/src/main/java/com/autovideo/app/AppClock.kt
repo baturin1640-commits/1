@@ -3,6 +3,7 @@ package com.autovideo.app
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Schedule
@@ -30,17 +31,17 @@ fun AppClock(modifier: Modifier = Modifier, compact: Boolean = false) {
     var time by remember { mutableStateOf(formatClock()) }
     LaunchedEffect(Unit) {
         while (true) {
-            delay(60_000L)
+            delay(30_000L)
             time = formatClock()
         }
     }
 
     Row(
         modifier = modifier
-            .background(Color(0xCC111018), RoundedCornerShape(18.dp))
+            .background(Color(0xE6111018), RoundedCornerShape(22.dp))
             .padding(
-                horizontal = if (compact) 12.dp else 15.dp,
-                vertical = if (compact) 8.dp else 10.dp,
+                horizontal = if (compact) 18.dp else 22.dp,
+                vertical = if (compact) 12.dp else 15.dp,
             ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -48,13 +49,15 @@ fun AppClock(modifier: Modifier = Modifier, compact: Boolean = false) {
             Icons.Rounded.Schedule,
             contentDescription = null,
             tint = AutoMuted,
-            modifier = Modifier.padding(end = 7.dp),
+            modifier = Modifier
+                .size(if (compact) 30.dp else 36.dp)
+                .padding(end = 6.dp),
         )
         Text(
             text = time,
             color = AutoText,
-            fontSize = if (compact) 17.sp else 20.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontSize = if (compact) 27.sp else 32.sp,
+            fontWeight = FontWeight.Bold,
         )
     }
 }
