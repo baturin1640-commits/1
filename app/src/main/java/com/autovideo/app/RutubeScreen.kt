@@ -27,7 +27,6 @@ import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -35,6 +34,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,7 +49,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -71,9 +70,6 @@ import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 private const val RUTUBE_HOME = "https://rutube.ru/"
-private const val RUTUBE_CAR_USER_AGENT =
-    "Mozilla/5.0 (Linux; Android 13; Mobile; rv:131.0) AppleWebKit/537.36 " +
-        "(KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36"
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -95,7 +91,6 @@ fun RutubeScreen(
     var fullscreenView by remember { mutableStateOf<View?>(null) }
     var fullscreenCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
     var loading by remember { mutableStateOf(true) }
-    var progress by remember { mutableIntStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
     var gestureFeedback by remember { mutableStateOf<String?>(null) }
 
@@ -118,18 +113,17 @@ fun RutubeScreen(
         fullscreenView = null
         fullscreenCallback?.onCustomViewHidden()
         fullscreenCallback = null
-        (popupWebView ?: webView)?.visibility = View.VISIBLE
+        activeWebView()?.visibility = View.VISIBLE
         latestFullscreenChanged(false)
     }
 
-    fun hardRefresh() {
-        val target = activeWebView() ?: return
-        val targetUrl = target.url?.takeIf { it.startsWith("https://") } ?: RUTUBE_HOME
+    fun reloadActivePage() {
         error = null
         loading = true
-        target.stopLoading()
-        target.clearCache(false)
-        target.loadUrl(targetUrl, mapOf("Cache-Control" to "no-cache"))
+        activeWebView()?.apply {
+            stopLoading()
+            reload()
+        }
     }
 
     LaunchedEffect(gestureFeedback) {
@@ -189,19 +183,16 @@ fun RutubeScreen(
         }
 
         fun createChromeClient(owner: WebView): WebChromeClient = object : WebChromeClient() {
-            override fun onProgressChanged(view: WebView, newProgress: Int) {
-                if (owner === activeWebView()) {
-                    progress = newProgress.coerceIn(0, 100)
-                    loading = newProgress < 100
-                }
-            }
-
             override fun onPermissionRequest(request: PermissionRequest) {
                 val secureOrigin = request.origin.scheme.equals("https", ignoreCase = true)
-                val allowed = request.resources.filter {
+                val protectedMedia = request.resources.filter {
                     it == PermissionRequest.RESOURCE_PROTECTED_MEDIA_ID
                 }.toTypedArray()
-                if (secureOrigin && allowed.isNotEmpty()) request.grant(allowed) else request.deny()
+                if (secureOrigin && protectedMedia.isNotEmpty()) {
+                    request.grant(protectedMedia)
+                } else {
+                    request.deny()
+                }
             }
 
             override fun onShowCustomView(view: View, callback: CustomViewCallback) {
@@ -226,14 +217,11 @@ fun RutubeScreen(
                 val popup = WebView(view.context)
                 configureRutubeWebView(popup)
                 popup.webViewClient = createRutubeClient(
-                    onLoading = { value -> loading = value },
-                    onError = { message -> error = message },
-                    onPageReady = { readyView ->
-                        applyCarViewport(readyView)
-                        CookieManager.getInstance().flush()
-                    },
+                    onLoading = { loading = it },
+                    onError = { error = it },
                 )
                 popup.webChromeClient = createChromeClient(popup)
+                CookieManager.getInstance().setAcceptThirdPartyCookies(popup, true)
                 popupWebView = popup
                 webView.visibility = View.GONE
                 container.addView(
@@ -254,12 +242,8 @@ fun RutubeScreen(
         }
 
         webView.webViewClient = createRutubeClient(
-            onLoading = { value -> loading = value },
-            onError = { message -> error = message },
-            onPageReady = { readyView ->
-                applyCarViewport(readyView)
-                CookieManager.getInstance().flush()
-            },
+            onLoading = { loading = it },
+            onError = { error = it },
         )
         webView.webChromeClient = createChromeClient(webView)
 
@@ -272,7 +256,10 @@ fun RutubeScreen(
 
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_RESUME -> activeWebView()?.onResume()
+                Lifecycle.Event.ON_RESUME -> {
+                    activeWebView()?.onResume()
+                    activeWebView()?.resumeTimers()
+                }
                 Lifecycle.Event.ON_PAUSE -> {
                     activeWebView()?.onPause()
                     CookieManager.getInstance().flush()
@@ -299,10 +286,15 @@ fun RutubeScreen(
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         Column(Modifier.fillMaxSize()) {
+            AndroidView(
+                factory = { container },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+            )
+
             if (fullscreenView == null) {
-                RutubeToolbar(
-                    loading = loading,
-                    progress = progress,
+                RutubeBottomControls(
                     popupOpen = popupWebView != null,
                     canGoBack = activeWebView()?.canGoBack() == true,
                     onBack = {
@@ -317,15 +309,9 @@ fun RutubeScreen(
                         closePopup()
                         webView.loadUrl(RUTUBE_HOME)
                     },
-                    onRefresh = ::hardRefresh,
+                    onRefresh = ::reloadActivePage,
                 )
             }
-            AndroidView(
-                factory = { container },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-            )
         }
 
         if (fullscreenView != null) {
@@ -380,17 +366,15 @@ fun RutubeScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(message, color = Color.White, fontSize = 21.sp)
-                Spacer(Modifier.padding(7.dp))
-                HeadUnitActionButton("Повторить", Icons.Rounded.Refresh, onClick = ::hardRefresh)
+                Spacer(Modifier.height(14.dp))
+                HeadUnitActionButton("Повторить", Icons.Rounded.Refresh, onClick = ::reloadActivePage)
             }
         }
     }
 }
 
 @Composable
-private fun RutubeToolbar(
-    loading: Boolean,
-    progress: Int,
+private fun RutubeBottomControls(
     popupOpen: Boolean,
     canGoBack: Boolean,
     onBack: () -> Unit,
@@ -401,44 +385,41 @@ private fun RutubeToolbar(
         modifier = Modifier
             .fillMaxWidth()
             .background(Color(0xFF0A0811))
-            .padding(horizontal = 18.dp, vertical = 12.dp),
+            .padding(horizontal = 18.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         HeadUnitIconButton(
             Icons.Rounded.ArrowBack,
             "Назад",
             onBack,
             enabled = canGoBack || popupOpen,
-            size = 76.dp,
+            size = 74.dp,
             iconSize = 42.dp,
             backgroundColor = Color(0xFF282331),
         )
+        Spacer(Modifier.width(12.dp))
         HeadUnitIconButton(
             Icons.Rounded.Home,
             "Главная RUTUBE",
             onHome,
-            size = 76.dp,
+            size = 74.dp,
             iconSize = 42.dp,
             backgroundColor = Color(0xFF282331),
         )
+        Spacer(Modifier.width(18.dp))
         Column(Modifier.weight(1f)) {
-            Text("RUTUBE", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
+            Text("RUTUBE", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text(
-                when {
-                    popupOpen -> "Авторизация открыта внутри приложения"
-                    loading -> "Загрузка страницы · $progress%"
-                    else -> "Поиск, вход и просмотр без внешнего браузера"
-                },
+                if (popupOpen) "Авторизация открыта внутри приложения" else "Штатная страница без наложений",
                 color = AutoMuted,
-                fontSize = 15.sp,
+                fontSize = 14.sp,
             )
         }
         HeadUnitIconButton(
             Icons.Rounded.Refresh,
-            "Полностью обновить страницу",
+            "Обновить страницу",
             onRefresh,
-            size = 76.dp,
+            size = 74.dp,
             iconSize = 42.dp,
             backgroundColor = AutoPurple,
         )
@@ -463,14 +444,12 @@ private fun configureRutubeWebView(view: WebView) {
         cacheMode = WebSettings.LOAD_DEFAULT
         setSupportMultipleWindows(true)
         javaScriptCanOpenWindowsAutomatically = true
-        builtInZoomControls = false
+        setSupportZoom(true)
+        builtInZoomControls = true
         displayZoomControls = false
-        useWideViewPort = true
+        useWideViewPort = false
         loadWithOverviewMode = false
-        textZoom = 112
-        defaultFontSize = 18
-        minimumFontSize = 14
-        userAgentString = RUTUBE_CAR_USER_AGENT
+        textZoom = 100
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) safeBrowsingEnabled = true
     }
 }
@@ -478,7 +457,6 @@ private fun configureRutubeWebView(view: WebView) {
 private fun createRutubeClient(
     onLoading: (Boolean) -> Unit,
     onError: (String?) -> Unit,
-    onPageReady: (WebView) -> Unit,
 ): WebViewClient = object : WebViewClient() {
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
         return handleRutubeNavigation(view, request.url)
@@ -497,7 +475,7 @@ private fun createRutubeClient(
 
     override fun onPageFinished(view: WebView, url: String) {
         onLoading(false)
-        onPageReady(view)
+        CookieManager.getInstance().flush()
     }
 
     override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, sslError: SslError) {
@@ -541,27 +519,6 @@ private fun handleRutubeNavigation(view: WebView, target: Uri): Boolean {
     }
 }
 
-private fun applyCarViewport(view: WebView) {
-    val script = """
-        (function() {
-          var meta = document.querySelector('meta[name="viewport"]');
-          if (!meta) {
-            meta = document.createElement('meta');
-            meta.name = 'viewport';
-            document.head.appendChild(meta);
-          }
-          meta.content = 'width=960, initial-scale=1.0, maximum-scale=2.5, user-scalable=yes';
-          document.documentElement.style.backgroundColor = '#000000';
-          document.body.style.backgroundColor = '#000000';
-          document.querySelectorAll('video').forEach(function(video) {
-            video.setAttribute('playsinline', 'true');
-            video.setAttribute('webkit-playsinline', 'true');
-          });
-        })();
-    """.trimIndent()
-    view.evaluateJavascript(script, null)
-}
-
 @Composable
 private fun RutubeEdgeGestureZone(
     isVolume: Boolean,
@@ -572,7 +529,7 @@ private fun RutubeEdgeGestureZone(
 ) {
     val context = LocalContext.current
     var accumulated by remember { mutableFloatStateOf(0f) }
-    var startVolume by remember { mutableIntStateOf(0) }
+    var startVolume by remember { mutableStateOf(0) }
     var startBrightness by remember { mutableFloatStateOf(0.5f) }
 
     Box(
