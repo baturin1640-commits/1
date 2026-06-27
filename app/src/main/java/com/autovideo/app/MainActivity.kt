@@ -7,8 +7,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -23,6 +27,13 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val state by viewModel.uiState.collectAsStateWithLifecycle()
+            val systemDensity = LocalDensity.current
+            val carDensity = remember(systemDensity.density, systemDensity.fontScale) {
+                Density(
+                    density = systemDensity.density,
+                    fontScale = maxOf(systemDensity.fontScale, 1.35f),
+                )
+            }
 
             val folderPicker = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.OpenDocumentTree(),
@@ -52,13 +63,15 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            AutoVideoTheme {
-                VideoAppRoot(
-                    state = state,
-                    onAddSource = { folderPicker.launch(null) },
-                    onRefresh = viewModel::refresh,
-                    onRemoveSource = viewModel::removeSource,
-                )
+            CompositionLocalProvider(LocalDensity provides carDensity) {
+                AutoVideoTheme {
+                    VideoAppRoot(
+                        state = state,
+                        onAddSource = { folderPicker.launch(null) },
+                        onRefresh = viewModel::refresh,
+                        onRemoveSource = viewModel::removeSource,
+                    )
+                }
             }
         }
     }
