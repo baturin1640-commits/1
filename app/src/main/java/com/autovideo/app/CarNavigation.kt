@@ -56,18 +56,18 @@ fun CarSideNavigation(
 ) {
     Column(
         modifier = Modifier
-            .width(132.dp)
+            .width(172.dp)
             .fillMaxHeight()
             .background(Brush.verticalGradient(listOf(Color(0xFF080711), Color(0xFF100B21))))
-            .padding(vertical = 8.dp),
+            .padding(vertical = 5.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Image(
             painter = painterResource(R.drawable.ic_video_logo),
             contentDescription = "Видео",
-            modifier = Modifier.size(38.dp),
+            modifier = Modifier.size(46.dp),
         )
-        Spacer(Modifier.size(2.dp))
+        Spacer(Modifier.size(1.dp))
         CarNavItem("Главная", Icons.Rounded.Home, RootSection.HOME, selected, onSelect)
         CarNavItem("Видео", Icons.Rounded.VideoLibrary, RootSection.VIDEO, selected, onSelect)
         CarNavItem(
@@ -75,7 +75,7 @@ fun CarSideNavigation(
             section = RootSection.RUTUBE,
             selected = selected,
             onSelect = onSelect,
-            customIcon = { RutubeLogoIcon(Modifier.size(37.dp)) },
+            customIcon = { RutubeLogoIcon(Modifier.size(44.dp)) },
         )
         CarNavItem("Музыка", Icons.Rounded.Audiotrack, RootSection.AUDIO, selected, onSelect)
         CarNavItem("Избранное", Icons.Rounded.Favorite, RootSection.FAVORITES, selected, onSelect)
@@ -86,14 +86,14 @@ fun CarSideNavigation(
             contentDescription = "Продолжить просмотр",
             onClick = onResumeLatest,
             enabled = latestVideo != null,
-            size = 64.dp,
-            iconSize = 38.dp,
+            size = 70.dp,
+            iconSize = 42.dp,
             backgroundColor = if (latestVideo != null) AutoPurple else AutoSurfaceHigh,
         )
         Text(
             if (latestVideo != null) "Продолжить" else "Нет истории",
             color = AutoMuted,
-            fontSize = 10.sp,
+            fontSize = 12.sp,
         )
     }
 }
@@ -108,20 +108,20 @@ private fun CarNavItem(
     customIcon: (@Composable () -> Unit)? = null,
 ) {
     val active = section == selected
-    val scale by animateFloatAsState(if (active) 1.035f else 1f, label = "navScale")
+    val scale by animateFloatAsState(if (active) 1.04f else 1f, label = "navScale")
     Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 9.dp, vertical = 2.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 1.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
             modifier = Modifier
                 .scale(scale)
-                .size(66.dp)
-                .headUnitPressable({ onSelect(section) }, shape = RoundedCornerShape(20.dp))
+                .size(72.dp)
+                .headUnitPressable({ onSelect(section) }, shape = RoundedCornerShape(23.dp))
                 .background(
                     if (active) Brush.linearGradient(listOf(AutoPink, AutoPurple, AutoBlue))
                     else Brush.linearGradient(listOf(AutoSurfaceHigh, AutoSurfaceHigh)),
-                    RoundedCornerShape(20.dp),
+                    RoundedCornerShape(23.dp),
                 ),
             contentAlignment = Alignment.Center,
         ) {
@@ -131,14 +131,14 @@ private fun CarNavItem(
                     icon,
                     label,
                     tint = if (active) Color.White else AutoMuted,
-                    modifier = Modifier.size(37.dp),
+                    modifier = Modifier.size(43.dp),
                 )
             }
         }
         Text(
             label,
             color = if (active) AutoText else AutoMuted,
-            fontSize = 10.sp,
+            fontSize = 13.sp,
             maxLines = 1,
         )
     }
