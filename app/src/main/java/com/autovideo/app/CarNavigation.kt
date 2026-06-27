@@ -71,7 +71,7 @@ fun CarSideNavigation(
                 .weight(1f)
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(7.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             CarNavItem("Главная", Icons.Rounded.Home, RootSection.HOME, selected, onSelect)
             CarNavItem("Видео", Icons.Rounded.VideoLibrary, RootSection.VIDEO, selected, onSelect)
@@ -80,7 +80,7 @@ fun CarSideNavigation(
                 section = RootSection.RUTUBE,
                 selected = selected,
                 onSelect = onSelect,
-                customIcon = { RutubeLogoIcon(Modifier.size(58.dp)) },
+                customIcon = { RutubeLogoIcon(Modifier.size(60.dp)) },
             )
             CarNavItem("Музыка", Icons.Rounded.Audiotrack, RootSection.AUDIO, selected, onSelect)
             CarNavItem("Избранное", Icons.Rounded.Favorite, RootSection.FAVORITES, selected, onSelect)
@@ -91,15 +91,15 @@ fun CarSideNavigation(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(92.dp)
+                .height(100.dp)
                 .headUnitPressable(
                     onClick = onResumeLatest,
                     enabled = latestVideo != null,
-                    shape = RoundedCornerShape(28.dp),
+                    shape = RoundedCornerShape(30.dp),
                 )
                 .background(
                     if (latestVideo != null) AutoPurple else AutoSurfaceHigh,
-                    RoundedCornerShape(28.dp),
+                    RoundedCornerShape(30.dp),
                 )
                 .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -108,7 +108,7 @@ fun CarSideNavigation(
                 Icons.Rounded.PlayCircle,
                 contentDescription = "Продолжить просмотр",
                 tint = if (latestVideo != null) Color.White else AutoMuted,
-                modifier = Modifier.size(54.dp),
+                modifier = Modifier.size(56.dp),
             )
             Spacer(Modifier.width(12.dp))
             Text(
@@ -138,21 +138,21 @@ private fun CarNavItem(
         modifier = Modifier
             .scale(scale)
             .fillMaxWidth()
-            .height(98.dp)
+            .height(110.dp)
             .headUnitPressable(
                 onClick = { onSelect(section) },
-                shape = RoundedCornerShape(28.dp),
+                shape = RoundedCornerShape(30.dp),
             )
             .background(
                 if (active) Brush.linearGradient(listOf(AutoPink, AutoPurple, AutoBlue))
                 else Brush.linearGradient(listOf(AutoSurfaceHigh, AutoSurfaceHigh)),
-                RoundedCornerShape(28.dp),
+                RoundedCornerShape(30.dp),
             )
             .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            modifier = Modifier.size(62.dp),
+            modifier = Modifier.size(64.dp),
             contentAlignment = Alignment.Center,
         ) {
             when {
@@ -161,7 +161,7 @@ private fun CarNavItem(
                     icon,
                     contentDescription = label,
                     tint = if (active) Color.White else AutoMuted,
-                    modifier = Modifier.size(58.dp),
+                    modifier = Modifier.size(60.dp),
                 )
             }
         }
