@@ -6,13 +6,8 @@ import android.content.ContextWrapper
 import android.os.SystemClock
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -63,7 +58,6 @@ fun VideoAppRoot(
         var playingUri by rememberSaveable { mutableStateOf<String?>(null) }
         var modeName by rememberSaveable { mutableStateOf(PlayerDisplayMode.FULLSCREEN.name) }
         var queueUris by rememberSaveable { mutableStateOf(emptyList<String>()) }
-        var rutubeFullscreen by rememberSaveable { mutableStateOf(false) }
         var lastExitBackMs by remember { mutableLongStateOf(0L) }
 
         val section = runCatching { RootSection.valueOf(sectionName) }.getOrDefault(RootSection.HOME)
@@ -78,10 +72,6 @@ fun VideoAppRoot(
 
         LaunchedEffect(playingUri, state.loading, allFiles.size) {
             if (!state.loading && playingUri != null && playingFile == null) playingUri = null
-        }
-
-        LaunchedEffect(section) {
-            if (section != RootSection.RUTUBE) rutubeFullscreen = false
         }
 
         fun play(file: MediaFile, files: List<MediaFile>) {
@@ -101,8 +91,7 @@ fun VideoAppRoot(
         }
 
         fun openRutube() {
-            folderId = null
-            sectionName = RootSection.RUTUBE.name
+            openRutubeMiniBrowser(context)
         }
 
         fun backFolder() {
@@ -118,7 +107,6 @@ fun VideoAppRoot(
                 section != RootSection.HOME -> {
                     sectionName = RootSection.HOME.name
                     folderId = null
-                    rutubeFullscreen = false
                 }
                 playingFile != null -> playingUri = null
                 else -> {
@@ -138,28 +126,19 @@ fun VideoAppRoot(
 
         Box(Modifier.fillMaxSize().background(AutoBackground)) {
             Row(Modifier.fillMaxSize()) {
-                AnimatedVisibility(
-                    visible = !rutubeFullscreen,
-                    enter = slideInHorizontally(
-                        initialOffsetX = { -it },
-                        animationSpec = tween(280),
-                    ) + fadeIn(animationSpec = tween(220)),
-                    exit = slideOutHorizontally(
-                        targetOffsetX = { -it },
-                        animationSpec = tween(260),
-                    ) + fadeOut(animationSpec = tween(180)),
-                ) {
-                    CarSideNavigation(
-                        selected = section,
-                        latestVideo = latest,
-                        onSelect = {
-                            folderId = null
-                            rutubeFullscreen = false
-                            sectionName = it.name
-                        },
-                        onResumeLatest = { latest?.let { file -> play(file, state.videoFiles) } },
-                    )
-                }
+                CarSideNavigation(
+                    selected = section,
+                    latestVideo = latest,
+                    onSelect = { target ->
+                        folderId = null
+                        if (target == RootSection.RUTUBE) {
+                            openRutube()
+                        } else {
+                            sectionName = target.name
+                        }
+                    },
+                    onResumeLatest = { latest?.let { file -> play(file, state.videoFiles) } },
+                )
 
                 Box(Modifier.weight(1f).fillMaxHeight()) {
                     Crossfade(
@@ -204,14 +183,6 @@ fun VideoAppRoot(
                                 onOpenRutube = ::openRutube,
                                 onToggleFolderFavorite = favoritesStore::toggle,
                                 onToggleFileFavorite = favoritesStore::toggle,
-                            )
-
-                            destination == RootSection.RUTUBE.name -> RutubeScreen(
-                                onBack = {
-                                    rutubeFullscreen = false
-                                    sectionName = RootSection.HOME.name
-                                },
-                                onFullscreenChanged = { rutubeFullscreen = it },
                             )
 
                             destination == RootSection.AUDIO.name -> MusicLibraryScreen(
