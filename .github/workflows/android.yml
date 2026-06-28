@@ -15,6 +15,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Create Codex source package
+        shell: bash
+        run: |
+          git archive \
+            --format=zip \
+            --output="$RUNNER_TEMP/AutoVideo-Codex-Source.zip" \
+            HEAD
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -47,6 +55,14 @@ jobs:
         with:
           name: Android-build-log
           path: android-build.log
+          if-no-files-found: error
+
+      - name: Upload Codex source package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoVideo-Codex-Source
+          path: ${{ runner.temp }}/AutoVideo-Codex-Source.zip
           if-no-files-found: error
 
       - name: Fail when Gradle failed
