@@ -16,9 +16,8 @@ import kotlinx.coroutines.withContext
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val sourceStore = StorageSources(application)
-    private val selectedFolderScanner = MediaScanner(application)
+    private val selectedFolderScanner = SafMediaScanner(application)
     private val mediaStoreScanner = InternalMediaScanner(application)
-    private val fileSystemScanner = FileSystemMediaScanner(application)
     private val libraryCache = MediaLibraryCache(application)
     private val mutableState = MutableStateFlow(LibraryUiState(loading = true))
 
@@ -53,9 +52,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             val fingerprint = withContext(Dispatchers.IO) { currentFingerprint() }
             val cached = withContext(Dispatchers.IO) { libraryCache.load() }
-            val cacheMatches = cached != null &&
-                cached.fingerprint == fingerprint &&
-                cached.folders.isNotEmpty()
+            val cacheMatches = cached != null && cached.fingerprint == fingerprint
 
             if (cacheMatches) {
                 mutableState.value = LibraryUiState(
@@ -96,11 +93,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val result = withContext(Dispatchers.IO) {
                 val selected = sourceStore.selected()
                 val scanResult = if (selected != null) {
-                    runCatching { selectedFolderScanner.scan(listOf(selected)) }
+                    runCatching { selectedFolderScanner.scan(selected) }
                 } else {
                     runCatching {
-                        val indexed = mediaStoreScanner.scan(MediaPermissions.access(getApplication()))
-                        if (indexed.second.isNotEmpty()) indexed else fileSystemScanner.scan()
+                        mediaStoreScanner.scan(MediaPermissions.access(getApplication()))
                     }
                 }
 
@@ -113,10 +109,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         compareBy<MediaFolder> { it.path.count { char -> char == '/' } }
                             .thenBy { it.name.lowercase(Locale.getDefault()) }
                     )
-                val error = scanResult.exceptionOrNull()?.message
+                val sourceUnavailable = selected != null && sources.firstOrNull()?.connected == false
+                val error = when {
+                    sourceUnavailable -> "Накопитель отключён или доступ к нему потерян"
+                    scanResult.isFailure -> AppErrorMapper.userMessage(scanResult.exceptionOrNull())
+                    else -> null
+                }
                 val fingerprint = currentFingerprint()
 
-                if (folders.isNotEmpty() || error == null) {
+                if (scanResult.isSuccess) {
                     libraryCache.save(sources, folders, fingerprint)
                 }
                 ScanResult(sources, folders, error)
@@ -138,14 +139,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } catch (throwable: Throwable) {
             mutableState.value = mutableState.value.copy(
                 loading = false,
-                error = throwable.message ?: "Не удалось прочитать медиатеку",
+                error = AppErrorMapper.userMessage(throwable),
             )
         }
     }
 
     private fun currentFingerprint(): String = sourceStore.selected()?.let {
-        "selected::$it"
-    } ?: "internal::${fileSystemScanner.signature()}"
+        "selected::$it::complete-scan-v1"
+    } ?: MediaPermissions.access(getApplication<Application>()).let { access ->
+        "internal::video=${access.video};audio=${access.audio}"
+    }
 
     private fun emptyScanResult(): Pair<List<RemovableSource>, List<MediaFolder>> =
         emptyList<RemovableSource>() to emptyList()
