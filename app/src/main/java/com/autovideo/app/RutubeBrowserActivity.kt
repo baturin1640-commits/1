@@ -1,7 +1,6 @@
 package com.autovideo.app
 
 import android.annotation.SuppressLint
-import android.app.Activity
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
@@ -31,6 +30,7 @@ class RutubeBrowserActivity : ComponentActivity() {
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     private lateinit var root: FrameLayout
+    private lateinit var main: LinearLayout
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,7 +43,7 @@ class RutubeBrowserActivity : ComponentActivity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         root = FrameLayout(this).apply { setBackgroundColor(Color.rgb(6, 6, 17)) }
-        val main = LinearLayout(this).apply {
+        main = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(Color.rgb(6, 6, 17))
         }
@@ -84,6 +84,35 @@ class RutubeBrowserActivity : ComponentActivity() {
         toolbar.addView(toolbarButton("Домой") { webView.loadUrl(RUTUBE_HOME) })
         toolbar.addView(toolbarButton("Закрыть") { finish() })
 
+        val rutubeChromeClient = object : WebChromeClient() {
+            override fun onProgressChanged(view: WebView, newProgress: Int) {
+                progressBar.progress = newProgress
+                progressBar.visibility = if (newProgress in 1..99) View.VISIBLE else View.GONE
+            }
+
+            override fun onShowCustomView(view: View, callback: CustomViewCallback) {
+                if (customView != null) {
+                    callback.onCustomViewHidden()
+                    return
+                }
+                customView = view
+                customViewCallback = callback
+                root.addView(
+                    view,
+                    FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                    )
+                )
+                main.visibility = View.GONE
+                enableImmersiveMode()
+            }
+
+            override fun onHideCustomView() {
+                hideFullscreenVideo()
+            }
+        }
+
         webView = WebView(this).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -121,39 +150,7 @@ class RutubeBrowserActivity : ComponentActivity() {
                 }
             }
 
-            webChromeClient = object : WebChromeClient() {
-                override fun onProgressChanged(view: WebView, newProgress: Int) {
-                    progressBar.progress = newProgress
-                    progressBar.visibility = if (newProgress in 1..99) View.VISIBLE else View.GONE
-                }
-
-                override fun onShowCustomView(view: View, callback: CustomViewCallback) {
-                    if (customView != null) {
-                        callback.onCustomViewHidden()
-                        return
-                    }
-                    customView = view
-                    customViewCallback = callback
-                    root.addView(
-                        view,
-                        FrameLayout.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                        )
-                    )
-                    main.visibility = View.GONE
-                    enableImmersiveMode()
-                }
-
-                override fun onHideCustomView() {
-                    customView?.let { root.removeView(it) }
-                    customView = null
-                    customViewCallback?.onCustomViewHidden()
-                    customViewCallback = null
-                    main.visibility = View.VISIBLE
-                    enableImmersiveMode()
-                }
-            }
+            webChromeClient = rutubeChromeClient
         }
 
         main.addView(toolbar, LinearLayout.LayoutParams(
@@ -183,7 +180,6 @@ class RutubeBrowserActivity : ComponentActivity() {
         val scheme = uri.scheme.orEmpty().lowercase()
         if (scheme == "http" || scheme == "https") {
             view.loadUrl(uri.toString())
-            return true
         }
         return true
     }
@@ -193,9 +189,10 @@ class RutubeBrowserActivity : ComponentActivity() {
         super.onSaveInstanceState(outState)
     }
 
+    @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when {
-            customView != null -> webView.webChromeClient?.onHideCustomView()
+            customView != null -> hideFullscreenVideo()
             webView.canGoBack() -> webView.goBack()
             else -> super.onBackPressed()
         }
@@ -214,11 +211,19 @@ class RutubeBrowserActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
-        customView?.let { root.removeView(it) }
-        customView = null
+        hideFullscreenVideo()
         webView.stopLoading()
         webView.destroy()
         super.onDestroy()
+    }
+
+    private fun hideFullscreenVideo() {
+        customView?.let { root.removeView(it) }
+        customView = null
+        customViewCallback?.onCustomViewHidden()
+        customViewCallback = null
+        if (::main.isInitialized) main.visibility = View.VISIBLE
+        enableImmersiveMode()
     }
 
     private fun enableImmersiveMode() {
